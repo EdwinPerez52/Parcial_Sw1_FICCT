@@ -29,6 +29,15 @@ class AuthServiceTest {
         AuthException error = assertThrows(AuthException.class, () -> service.login("ana@example.com", "incorrecta"));
         assertEquals("Correo o contraseña inválidos.", error.getMessage()); verify(store).recordLoginFailure(id, 2, null);
     }
+    @Test void registrationDoesNotRevealAnExistingAccount() {
+        UUID id = UUID.randomUUID();
+        var account = new AuthStore.Account(id, "ana@example.com", "Ana", true, false, 0, null);
+        when(store.invitation(anyString())).thenReturn(Optional.of(new AuthStore.Invitation(UUID.randomUUID(),
+            "ana@example.com", null, false, java.time.Instant.now().plusSeconds(60), null, null, null)));
+        when(store.accountByEmail("ana@example.com")).thenReturn(Optional.of(account));
+        assertDoesNotThrow(() -> service.register("Ana", "ANA@example.com", "ClaveSegura1", "ClaveSegura1", "token"));
+        verify(store, never()).createAccount(anyString(), anyString(), anyBoolean());
+    }
     @Test void googleLinksToTheExistingEmailAccount() {
         UUID id = UUID.randomUUID(); var before = new AuthStore.Account(id, "ana@example.com", "Ana", true, false, 0, null); var after = new AuthStore.Account(id, "ana@example.com", "Ana Pérez", true, false, 0, null);
         when(store.identity("GOOGLE", "google-subject")).thenReturn(Optional.empty()); when(store.accountByEmail("ana@example.com")).thenReturn(Optional.of(before)); when(store.accountById(id)).thenReturn(Optional.of(after)); when(store.pendingJoins(id)).thenReturn(java.util.List.of()); when(store.acceptedInvitations(id)).thenReturn(java.util.List.of());

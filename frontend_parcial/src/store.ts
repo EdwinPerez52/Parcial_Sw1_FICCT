@@ -9,10 +9,11 @@ import { applyDiagramOperation } from './operationReducer';
 type SyncState = 'connecting' | 'online' | 'offline' | 'syncing' | 'error';
 export interface QueuedOperation { operation: DiagramOperation; status: 'pending' | 'acknowledged' | 'rejected'; createdAt: string; localDiagram: DiagramModel; error?: string }
 export interface SyncConflict { operationId: string; message: string; localDiagram: DiagramModel; serverDiagram: DiagramModel }
+export interface HistoryEntry { undo: DiagramOperation; redo: DiagramOperation }
 
 export interface DiagramState {
   diagram: DiagramModel; serverDiagram: DiagramModel; confirmedRevision: number; diagramId?: string;
-  selectedIds: string[]; history: DiagramModel[]; redoHistory: DiagramModel[];
+  selectedIds: string[]; history: HistoryEntry[]; redoHistory: HistoryEntry[];
   pendingOperations: QueuedOperation[]; conflicts: SyncConflict[]; participants: PresenceParticipant[]; eventSequence: number;
   syncState: SyncState; lastError?: string;
   initialize: (diagramId: string) => Promise<() => void>;
@@ -102,6 +103,16 @@ async function drainQueue() {
               localDiagram: item.localDiagram, serverDiagram: authoritative }], syncState: 'error', lastError: error.message });
           continue;
         }
+        if (cause instanceof ApiError && [401, 403, 404].includes(cause.status)) {
+          const current = useDiagramStore.getState();
+          const queue = current.pendingOperations.map(value => value.operation.operationId === item.operation.operationId
+            ? { ...value, status: 'rejected' as const, error: error.message } : value);
+          persist(id, queue); useDiagramStore.setState({
+            diagram: replay(current.serverDiagram, queue), pendingOperations: queue,
+            syncState: 'error', lastError: error.message,
+          });
+          continue;
+        }
         useDiagramStore.setState({ syncState: 'offline', lastError: error.message }); break;
       }
     }
@@ -117,7 +128,9 @@ function assertAttributeType(diagram: DiagramModel, type: string) {
   if (!scalarTypes.includes(type as (typeof scalarTypes)[number]) && !diagram.enumerations.some(item => item.name === type || item.id === type)) throw new Error(`Tipo de atributo no soportado: ${type}`);
 }
 function commit(before: DiagramModel, next: DiagramModel, op: DiagramOperation, remember = true) {
-  useDiagramStore.setState(state => ({ diagram: withRevision(next), history: remember ? [...state.history, snapshot(before)] : state.history,
+  const optimistic = withRevision(next);
+  const inverse = remember ? transition(optimistic, before) : undefined;
+  useDiagramStore.setState(state => ({ diagram: optimistic, history: remember && inverse ? [...state.history, { undo: inverse, redo: op }] : state.history,
     redoHistory: remember ? [] : state.redoHistory, lastError: undefined })); enqueue(op);
 }
 
@@ -250,7 +263,25 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
     assertName(value.name, 'enumeración'); const before = get().diagram; const old = before.enumerations.find(item => item.id === value.id); if (!old) return;
     if ([...before.classes, ...before.enumerations].some(item => item.id !== value.id && item.name.toLowerCase() === value.name.toLowerCase())) throw new Error(`Ya existe el tipo ${value.name}`);
     const names = value.values.map(item => item.name.toLowerCase()); if (new Set(names).size !== names.length) throw new Error('Los valores no pueden repetirse'); value.values.forEach(item => assertName(item.name, 'valor'));
-    const updated = { ...value, version: old.version + 1 }; commit(before, { ...before, enumerations: before.enumerations.map(item => item.id === value.id ? updated : item) }, operation('ENUMERATION_UPDATED', before.revision, value, old.version));
+    const nested: DiagramOperation[] = []; let enumerationVersion = old.version;
+    if (old.name !== value.name || old.position.x !== value.position.x || old.position.y !== value.position.y) {
+      nested.push(operation('ENUMERATION_UPDATED', before.revision, { ...old, name: value.name, position: value.position }, enumerationVersion)); enumerationVersion++;
+    }
+    for (const previous of old.values) {
+      const desired = value.values.find(item => item.id === previous.id);
+      if (!desired) { nested.push(operation('ENUMERATION_VALUE_DELETED', before.revision, { enumerationId: old.id, id: previous.id }, previous.version)); enumerationVersion++; }
+      else if (desired.name !== previous.name) { nested.push(operation('ENUMERATION_VALUE_UPDATED', before.revision, { enumerationId: old.id, value: desired }, previous.version)); enumerationVersion++; }
+    }
+    for (const desired of value.values.filter(item => !old.values.some(previous => previous.id === item.id))) {
+      nested.push(operation('ENUMERATION_VALUE_CREATED', before.revision, { enumerationId: old.id, value: desired }, enumerationVersion)); enumerationVersion++;
+    }
+    if (!nested.length) return;
+    const updated = { ...value, version: enumerationVersion, values: value.values.map(item => {
+      const previous = old.values.find(candidate => candidate.id === item.id);
+      return { ...item, version: previous ? previous.version + (previous.name === item.name ? 0 : 1) : 1 };
+    }) };
+    const batch = operation('BATCH', before.revision, { operations: nested });
+    commit(before, { ...before, enumerations: before.enumerations.map(item => item.id === value.id ? updated : item) }, batch);
   },
   deleteEnumeration: id => {
     const before = get().diagram; const old = before.enumerations.find(item => item.id === id); if (!old) return;
@@ -284,12 +315,18 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
     commit(before, { ...before, generalizations: before.generalizations.filter(item => item.id !== id) }, operation('GENERALIZATION_DELETED', before.revision, { id }, old.version)); set({ selectedIds: get().selectedIds.filter(value => value !== id) });
   },
   undo: () => {
-    const state = get(); const target = state.history.at(-1); if (!target) return; const compensating = transition(state.diagram, target); if (!compensating) return;
-    const next = applyDiagramOperation(state.diagram, compensating); set({ diagram: next, history: state.history.slice(0, -1), redoHistory: [...state.redoHistory, snapshot(state.diagram)], selectedIds: [] }); enqueue(compensating);
+    const state = get(); const entry = state.history.at(-1); if (!entry) return;
+    const compensating = withBase(structuredClone(entry.undo), state.diagram.revision);
+    const next = applyDiagramOperation(state.diagram, compensating);
+    set({ diagram: next, history: state.history.slice(0, -1), redoHistory: [...state.redoHistory, entry], selectedIds: [] }); enqueue(compensating);
   },
   redo: () => {
-    const state = get(); const target = state.redoHistory.at(-1); if (!target) return; const compensating = transition(state.diagram, target); if (!compensating) return;
-    const next = applyDiagramOperation(state.diagram, compensating); set({ diagram: next, history: [...state.history, snapshot(state.diagram)], redoHistory: state.redoHistory.slice(0, -1), selectedIds: [] }); enqueue(compensating);
+    const state = get(); const entry = state.redoHistory.at(-1); if (!entry) return;
+    const compensating = rebaseOperation(entry.redo, state.diagram);
+    const next = applyDiagramOperation(state.diagram, compensating);
+    const inverse = transition(next, state.diagram);
+    if (!inverse) return;
+    set({ diagram: next, history: [...state.history, { undo: inverse, redo: compensating }], redoHistory: state.redoHistory.slice(0, -1), selectedIds: [] }); enqueue(compensating);
   },
   retryConflict: operationId => {
     const state = get(); const queue = state.pendingOperations.map(value => value.operation.operationId === operationId ? { ...value, status: 'pending' as const, error: undefined } : value);

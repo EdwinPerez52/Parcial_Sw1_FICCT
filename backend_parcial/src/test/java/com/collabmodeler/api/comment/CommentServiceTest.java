@@ -5,6 +5,7 @@ import com.collabmodeler.api.collaboration.CollaborationEventPublisher;
 import com.collabmodeler.api.diagram.DiagramDocument;
 import com.collabmodeler.api.diagram.DiagramService;
 import com.collabmodeler.api.support.NotFoundException;
+import com.collabmodeler.api.support.ConflictException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -40,6 +41,15 @@ class CommentServiceTest {
         UUID diagramId = UUID.randomUUID(); when(diagrams.get(diagramId)).thenReturn(new DiagramDocument(diagramId, "M", 0, null, null));
         assertThrows(NotFoundException.class, () -> new CommentService(comments, diagrams, events, activity)
             .create(diagramId, "ASSOCIATION", UUID.randomUUID(), null, "Texto", "a", "Ana"));
+        verify(comments, never()).save(any());
+    }
+
+    @Test void rejectsAStaleConversationUpdate() {
+        UUID diagramId = UUID.randomUUID();
+        var root = new CommentEntity(diagramId, "DIAGRAM", null, "Revisar", "a", "Ana");
+        when(comments.findById(root.getId())).thenReturn(Optional.of(root));
+        assertThrows(ConflictException.class, () -> new CommentService(comments, diagrams, events, activity)
+            .resolve(diagramId, root.getId(), true, 7, "b", "Beto"));
         verify(comments, never()).save(any());
     }
 }

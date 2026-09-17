@@ -9,11 +9,12 @@ import { PropertyPanel } from './PropertyPanel';
 import { useDiagramStore } from './store';
 import { ImageProposal, analyzeDiagramImage, diagramApi, downloadGeneratedBackend } from './api';
 import { dictate } from './speech';
-import { CommentsPanel, VersionsPanel } from './CollaborationPanel';
+import { CommentsPanel, MembersPanel, VersionsPanel } from './CollaborationPanel';
 
 const nodeTypes = { classNode: ClassNode, enumerationNode: EnumerationNode };
 
 export default function App({ projectId, userName, role, onBack, onLogout }: { projectId: string; userName: string; role: string; onBack: () => void; onLogout: () => void }) {
+  const canEdit = role === 'OWNER' || role === 'EDITOR';
   const store = useDiagramStore();
   const {
     diagram, diagramId, syncState, lastError, initialize, selectedIds, selectElements,
@@ -23,7 +24,7 @@ export default function App({ projectId, userName, role, onBack, onLogout }: { p
   } = store;
   const [command, setCommand] = useState('');
   const [assistantMessage, setAssistantMessage] = useState('Prueba: “crea una clase Producto”');
-  const [panel, setPanel] = useState<'properties' | 'assistant' | 'comments' | 'history'>('properties');
+  const [panel, setPanel] = useState<'properties' | 'assistant' | 'comments' | 'history' | 'members'>('properties');
   const [imageProposal, setImageProposal] = useState<ImageProposal>();
   const [analyzingImage, setAnalyzingImage] = useState(false);
   const imageInput = useRef<HTMLInputElement>(null);
@@ -39,6 +40,7 @@ export default function App({ projectId, userName, role, onBack, onLogout }: { p
     const keydown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       if (target?.matches('input, textarea, select, [contenteditable=true]')) return;
+      if (!canEdit) return;
       if ((event.key === 'Delete' || event.key === 'Backspace') && selectedIds.length) {
         event.preventDefault();
         if (window.confirm(`¿Eliminar ${selectedIds.length} elemento(s) seleccionado(s)?`)) {
@@ -60,7 +62,7 @@ export default function App({ projectId, userName, role, onBack, onLogout }: { p
     };
     window.addEventListener('keydown', keydown);
     return () => window.removeEventListener('keydown', keydown);
-  }, [deleteSelected, diagram.classes, diagram.enumerations, moveSelected, redo, selectElements, selectedIds, undo]);
+  }, [canEdit, deleteSelected, diagram.classes, diagram.enumerations, moveSelected, redo, selectElements, selectedIds, undo]);
 
   const share = async () => {
     if (!diagramId) return;
@@ -170,7 +172,7 @@ export default function App({ projectId, userName, role, onBack, onLogout }: { p
     setCommand('');
   };
 
-  const connect = (connection: Connection) => {
+  const connect = useCallback((connection: Connection) => {
     if (connection.source && connection.target && connection.source !== connection.target
       && diagram.classes.some(item => item.id === connection.source)
       && diagram.classes.some(item => item.id === connection.target)) {
@@ -180,7 +182,19 @@ export default function App({ projectId, userName, role, onBack, onLogout }: { p
         sourceRole: '', targetRole: '', owningSide: 'SOURCE',
       });
     }
-  };
+  }, [addAssociation, diagram.classes]);
+
+  const handleNodeDragStop = useCallback((_: unknown, node: Node) => {
+    const original = diagram.classes.find(item => item.id === node.id);
+    const originalEnumeration = diagram.enumerations.find(item => item.id === node.id);
+    const previousPosition = original?.position ?? originalEnumeration?.position;
+    if (!previousPosition) return;
+    if (selectedIds.length > 1) moveSelected({ x: node.position.x - previousPosition.x, y: node.position.y - previousPosition.y });
+    else if (original) moveClass(node.id, node.position.x, node.position.y);
+    else if (originalEnumeration) updateEnumeration({ ...originalEnumeration, position: node.position });
+  }, [diagram.classes, diagram.enumerations, moveClass, moveSelected, selectedIds.length, updateEnumeration]);
+
+  const handlePaneClick = useCallback(() => selectElements([]), [selectElements]);
 
   return (
     <main className="app-shell">
@@ -196,7 +210,7 @@ export default function App({ projectId, userName, role, onBack, onLogout }: { p
         </div>
       </header>
 
-      <aside className="toolbar">
+      {canEdit && <aside className="toolbar">
         <button title="Nueva clase" onClick={() => { try { addClass(); } catch (cause) { setAssistantMessage(String(cause)); } }}><Plus /></button>
         <button title="Nueva enumeración" onClick={() => { try { addEnumeration(); } catch (cause) { setAssistantMessage(String(cause)); } }}><Braces /></button>
         <button title="Importar fotografía" onClick={() => imageInput.current?.click()} disabled={analyzingImage}><Camera /></button>
@@ -204,7 +218,7 @@ export default function App({ projectId, userName, role, onBack, onLogout }: { p
         <div className="separator" />
         <button title="Deshacer (Ctrl+Z)" onClick={undo}><Undo2 /></button>
         <button title="Rehacer (Ctrl+Mayús+Z)" onClick={redo}><Redo2 /></button>
-      </aside>
+      </aside>}
 
       <section className="canvas" onMouseMove={event => {
         const now = Date.now(); if (now - lastCursorSent.current < 80) return; lastCursorSent.current = now;
@@ -213,19 +227,12 @@ export default function App({ projectId, userName, role, onBack, onLogout }: { p
       }}>
         <ReactFlow
           nodes={nodes} edges={edges} nodeTypes={nodeTypes} fitView selectionOnDrag
+          nodesDraggable={canEdit} nodesConnectable={canEdit}
           multiSelectionKeyCode={['Control', 'Meta']}
-          onConnect={connect}
+          onConnect={canEdit ? connect : undefined}
           onSelectionChange={handleSelectionChange}
-          onNodeDragStop={(_, node) => {
-            const original = diagram.classes.find(item => item.id === node.id);
-            const originalEnumeration = diagram.enumerations.find(item => item.id === node.id);
-            const previousPosition = original?.position ?? originalEnumeration?.position;
-            if (!previousPosition) return;
-            if (selectedIds.length > 1) moveSelected({ x: node.position.x - previousPosition.x, y: node.position.y - previousPosition.y });
-            else if (original) moveClass(node.id, node.position.x, node.position.y);
-            else if (originalEnumeration) updateEnumeration({ ...originalEnumeration, position: node.position });
-          }}
-          onPaneClick={() => selectElements([])}
+          onNodeDragStop={canEdit ? handleNodeDragStop : undefined}
+          onPaneClick={handlePaneClick}
         >
           <Background gap={20} color="#d7dce5" />
           <MiniMap nodeColor={node => node.type === 'enumerationNode' ? '#0891b2' : '#4f46e5'} pannable zoomable />
@@ -237,11 +244,12 @@ export default function App({ projectId, userName, role, onBack, onLogout }: { p
       <aside className="right-panel">
         <div className="panel-tabs">
           <button className={panel === 'properties' ? 'active' : ''} onClick={() => setPanel('properties')}><ListTree size={16} /> Propiedades</button>
-          <button className={panel === 'assistant' ? 'active' : ''} onClick={() => setPanel('assistant')}><Bot size={16} /> Asistente</button>
+          {canEdit && <button className={panel === 'assistant' ? 'active' : ''} onClick={() => setPanel('assistant')}><Bot size={16} /> Asistente</button>}
           <button className={panel === 'comments' ? 'active' : ''} onClick={() => setPanel('comments')}><MessageSquare size={16} /> Comentarios</button>
           <button className={panel === 'history' ? 'active' : ''} onClick={() => setPanel('history')}><History size={16} /> Hitos</button>
+          <button className={panel === 'members' ? 'active' : ''} onClick={() => setPanel('members')}><Users size={16} /> Miembros</button>
         </div>
-        {panel === 'properties' ? <PropertyPanel report={setAssistantMessage} /> : panel === 'comments' && diagramId ? <CommentsPanel diagramId={diagramId} diagram={diagram} role={role} eventSequence={eventSequence} /> : panel === 'history' && diagramId ? <VersionsPanel diagramId={diagramId} diagram={diagram} pendingCount={pendingOperations.filter(value => value.status !== 'acknowledged').length} eventSequence={eventSequence} accept={acceptAuthoritative} /> : <>
+        {panel === 'properties' ? (canEdit ? <PropertyPanel report={setAssistantMessage} /> : <div className="assistant-body"><p>Modo de solo lectura. Puedes seleccionar elementos para inspeccionar el diagrama.</p></div>) : panel === 'comments' && diagramId ? <CommentsPanel diagramId={diagramId} diagram={diagram} role={role} eventSequence={eventSequence} /> : panel === 'history' && diagramId ? <VersionsPanel diagramId={diagramId} diagram={diagram} pendingCount={pendingOperations.filter(value => value.status !== 'acknowledged').length} eventSequence={eventSequence} accept={acceptAuthoritative} canEdit={canEdit} /> : panel === 'members' && diagramId ? <MembersPanel diagramId={diagramId} owner={role === 'OWNER'} /> : <>
           <div className="panel-title"><Bot size={19} /><div><strong>Asistente de diseño</strong><small>Operaciones verificadas</small></div></div>
           <div className="assistant-body">
             <div className="assistant-bubble">{assistantMessage}</div>

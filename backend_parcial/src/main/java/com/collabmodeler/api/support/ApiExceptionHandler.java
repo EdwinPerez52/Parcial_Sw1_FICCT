@@ -41,6 +41,7 @@ public class ApiExceptionHandler {
         problem.setProperty("code", exception.getCode());
         if (exception.getCurrentRevision() != null) problem.setProperty("currentRevision", exception.getCurrentRevision());
         if (exception.getElementId() != null) problem.setProperty("elementId", exception.getElementId());
+        if (exception.getExpectedElementVersion() != null) problem.setProperty("expectedElementVersion", exception.getExpectedElementVersion());
         if (exception.getActualElementVersion() != null) problem.setProperty("actualElementVersion", exception.getActualElementVersion());
         return problem;
     }

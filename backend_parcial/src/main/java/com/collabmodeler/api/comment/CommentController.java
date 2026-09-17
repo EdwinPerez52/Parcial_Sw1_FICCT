@@ -17,7 +17,7 @@ public class CommentController {
     private final CommentService comments; private final AccessService access;
     public CommentController(CommentService comments, AccessService access) { this.comments = comments; this.access = access; }
     public record CreateCommentRequest(@NotBlank String targetType, UUID targetId, UUID parentCommentId, @NotBlank String body) {}
-    public record ResolveCommentRequest(@NotNull Boolean resolved) {}
+    public record ResolveCommentRequest(@NotNull Boolean resolved, @NotNull Long expectedVersion) {}
 
     @GetMapping
     List<CommentEntity> list(@PathVariable UUID diagramId, Principal principal) {
@@ -34,7 +34,7 @@ public class CommentController {
     CommentEntity resolve(@PathVariable UUID diagramId, @PathVariable UUID commentId,
                           @Valid @RequestBody ResolveCommentRequest request, Principal principal) {
         AccessController.requireVerified(principal); access.requireEditor(diagramId, AccessController.subject(principal));
-        return comments.resolve(diagramId, commentId, request.resolved(), AccessController.subject(principal),
+        return comments.resolve(diagramId, commentId, request.resolved(), request.expectedVersion(), AccessController.subject(principal),
             AccessController.displayName(principal));
     }
 }

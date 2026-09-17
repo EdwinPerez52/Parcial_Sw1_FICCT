@@ -40,8 +40,8 @@ class DiagramOperationValidationTest {
             new DiagramDocument.ClassElement(secondId, "Pedido", List.of(), new DiagramDocument.Position(200, 0), 1)
         ), List.of(), List.of(), List.of());
         entity = new DiagramEntity(diagramId, "Ventas", mapper.writeValueAsString(document), "owner");
-        when(diagrams.findForUpdate(diagramId)).thenReturn(Optional.of(entity));
-        when(operations.existsById(any())).thenReturn(false);
+        lenient().when(diagrams.findForUpdate(diagramId)).thenReturn(Optional.of(entity));
+        lenient().when(operations.existsById(any())).thenReturn(false);
         service = new DiagramService(diagrams, operations, mapper, access);
     }
 
@@ -68,7 +68,7 @@ class DiagramOperationValidationTest {
     void classMoveRequiresAnExpectedVersion() {
         ObjectNode payload = mapper.createObjectNode().put("id", firstId.toString()).put("x", 3).put("y", 4);
         assertThrows(IllegalArgumentException.class, () -> service.apply(diagramId,
-            new DiagramOperationRequest(UUID.randomUUID(), 0, null, "CLASS_MOVED", payload), "u", "User"));
+            new DiagramOperationRequest(UUID.randomUUID(), 0L, null, "CLASS_MOVED", payload), "u", "User"));
     }
 
     @Test
@@ -76,7 +76,7 @@ class DiagramOperationValidationTest {
         ObjectNode payload = mapper.createObjectNode();
         payload.set("model", mapper.valueToTree(new DiagramDocument(diagramId, "Ventas", 0, null, null)));
         assertThrows(IllegalArgumentException.class, () -> service.apply(diagramId,
-            new DiagramOperationRequest(UUID.randomUUID(), 0, null, "MODEL_RESTORED", payload), "u", "User"));
+            new DiagramOperationRequest(UUID.randomUUID(), 0L, null, "MODEL_RESTORED", payload), "u", "User"));
         assertEquals(0, entity.getRevision());
     }
 
@@ -90,7 +90,7 @@ class DiagramOperationValidationTest {
             new DiagramDocument.Generalization(UUID.randomUUID(), secondId, firstId, 1))));
 
         assertThrows(IllegalArgumentException.class, () -> service.apply(diagramId,
-            new DiagramOperationRequest(UUID.randomUUID(), 0, null, "BATCH", payload), "u", "User"));
+            new DiagramOperationRequest(UUID.randomUUID(), 0L, null, "BATCH", payload), "u", "User"));
         assertEquals(0, entity.getRevision());
         verify(diagrams, never()).save(any());
         verify(operations, never()).save(any());
@@ -155,6 +155,31 @@ class DiagramOperationValidationTest {
         assertTrue(result.classes().getFirst().attributes().isEmpty());
         assertTrue(result.associations().isEmpty());
         assertTrue(result.generalizations().isEmpty());
+    }
+
+    @Test
+    void supportsGranularEnumerationValueOperations() {
+        UUID enumerationId = UUID.randomUUID(); UUID valueId = UUID.randomUUID();
+        ObjectNode enumeration = mapper.createObjectNode().put("id", enumerationId.toString()).put("name", "Estado").put("version", 1);
+        enumeration.putObject("position").put("x", 400).put("y", 0); enumeration.putArray("values");
+        apply("ENUMERATION_CREATED", enumeration, null);
+
+        ObjectNode create = mapper.createObjectNode().put("enumerationId", enumerationId.toString());
+        create.putObject("value").put("id", valueId.toString()).put("name", "ACTIVO").put("version", 1);
+        DiagramDocument result = apply("ENUMERATION_VALUE_CREATED", create, 1L);
+        ObjectNode update = mapper.createObjectNode().put("enumerationId", enumerationId.toString());
+        update.putObject("value").put("id", valueId.toString()).put("name", "HABILITADO").put("version", 1);
+        result = apply("ENUMERATION_VALUE_UPDATED", update, 1L);
+        result = apply("ENUMERATION_VALUE_DELETED", mapper.createObjectNode().put("enumerationId", enumerationId.toString()).put("id", valueId.toString()), 2L);
+
+        assertEquals(4, result.revision());
+        assertTrue(result.enumerations().getFirst().values().isEmpty());
+    }
+
+    @Test
+    void rejectsAMissingBaseRevisionInsteadOfDefaultingToZero() {
+        var request = new DiagramOperationRequest(UUID.randomUUID(), null, null, "CLASS_CREATED", mapper.createObjectNode());
+        assertThrows(IllegalArgumentException.class, () -> service.apply(diagramId, request, "u", "User"));
     }
 
     private DiagramOperationRequest rename(UUID id, String name, long revision, long version) {

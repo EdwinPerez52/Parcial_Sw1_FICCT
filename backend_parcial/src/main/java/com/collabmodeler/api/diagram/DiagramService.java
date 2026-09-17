@@ -202,6 +202,38 @@ public class DiagramService {
                 enumerations.set(index, new DiagramDocument.Enumeration(old.id(), value.name(),
                     mergeEnumValueVersions(old.values(), value.values()), value.position(), old.version() + 1));
             }
+            case "ENUMERATION_VALUE_CREATED" -> {
+                UUID enumerationId = uuid(payload, "enumerationId");
+                int index = enumerationIndex(enumerations, enumerationId);
+                DiagramDocument.Enumeration old = enumerations.get(index);
+                assertVersion(old.version(), requireExpected(request, enumerationId), serverRevision, enumerationId);
+                DiagramDocument.EnumerationValue value = mapper.convertValue(payload.path("value"), DiagramDocument.EnumerationValue.class);
+                var values = new ArrayList<>(old.values());
+                values.add(new DiagramDocument.EnumerationValue(requiredId(value.id()), value.name(), 1));
+                enumerations.set(index, new DiagramDocument.Enumeration(old.id(), old.name(), values, old.position(), old.version() + 1));
+            }
+            case "ENUMERATION_VALUE_UPDATED" -> {
+                UUID enumerationId = uuid(payload, "enumerationId");
+                int index = enumerationIndex(enumerations, enumerationId);
+                DiagramDocument.Enumeration old = enumerations.get(index);
+                DiagramDocument.EnumerationValue value = mapper.convertValue(payload.path("value"), DiagramDocument.EnumerationValue.class);
+                int valueIndex = enumerationValueIndex(old.values(), requiredId(value.id()));
+                DiagramDocument.EnumerationValue previous = old.values().get(valueIndex);
+                assertVersion(previous.version(), requireExpected(request, previous.id()), serverRevision, previous.id());
+                var values = new ArrayList<>(old.values());
+                values.set(valueIndex, new DiagramDocument.EnumerationValue(previous.id(), value.name(), previous.version() + 1));
+                enumerations.set(index, new DiagramDocument.Enumeration(old.id(), old.name(), values, old.position(), old.version() + 1));
+            }
+            case "ENUMERATION_VALUE_DELETED" -> {
+                UUID enumerationId = uuid(payload, "enumerationId");
+                UUID id = uuid(payload, "id");
+                int index = enumerationIndex(enumerations, enumerationId);
+                DiagramDocument.Enumeration old = enumerations.get(index);
+                int valueIndex = enumerationValueIndex(old.values(), id);
+                assertVersion(old.values().get(valueIndex).version(), requireExpected(request, id), serverRevision, id);
+                var values = new ArrayList<>(old.values()); values.remove(valueIndex);
+                enumerations.set(index, new DiagramDocument.Enumeration(old.id(), old.name(), values, old.position(), old.version() + 1));
+            }
             case "ENUMERATION_DELETED" -> {
                 UUID id = uuid(payload, "id");
                 int index = enumerationIndex(enumerations, id);
@@ -382,6 +414,11 @@ public class DiagramService {
         throw new NotFoundException("Enumeración no encontrada: " + id);
     }
 
+    private int enumerationValueIndex(List<DiagramDocument.EnumerationValue> values, UUID id) {
+        for (int i = 0; i < values.size(); i++) if (values.get(i).id().equals(id)) return i;
+        throw new NotFoundException("Valor de enumeración no encontrado: " + id);
+    }
+
     private int generalizationIndex(List<DiagramDocument.Generalization> values, UUID id) {
         for (int i = 0; i < values.size(); i++) if (values.get(i).id().equals(id)) return i;
         throw new NotFoundException("Generalización no encontrada: " + id);
@@ -396,6 +433,7 @@ public class DiagramService {
 
     private void validateRequest(DiagramOperationRequest request) {
         if (request == null || request.operationId() == null) throw new IllegalArgumentException("operationId es obligatorio");
+        if (request.baseRevision() == null) throw new IllegalArgumentException("baseRevision es obligatorio");
         if (request.baseRevision() < 0) throw new IllegalArgumentException("baseRevision no puede ser negativa");
         if (request.type() == null || request.type().isBlank()) throw new IllegalArgumentException("type es obligatorio");
         if (request.payload() == null || request.payload().isNull()) throw new IllegalArgumentException("payload es obligatorio");
@@ -403,7 +441,7 @@ public class DiagramService {
 
     private void assertVersion(long actual, long expected, long revision, UUID id) {
         if (expected != actual) {
-            throw conflict("ELEMENT_VERSION_MISMATCH", "El elemento cambió en otra sesión", revision, id, actual);
+            throw new ConflictException("ELEMENT_VERSION_MISMATCH", "El elemento cambió en otra sesión", revision, id, expected, actual);
         }
     }
 

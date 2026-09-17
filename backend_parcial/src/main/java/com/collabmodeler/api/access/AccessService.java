@@ -15,6 +15,7 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.Set;
 
 @Service
 public class AccessService {
@@ -90,6 +91,30 @@ public class AccessService {
     public List<DiagramMemberEntity> list(UUID diagramId, String subject) {
         requireMember(diagramId, subject);
         return members.findByDiagramIdOrderByJoinedAt(diagramId);
+    }
+
+    @Transactional
+    public DiagramMemberEntity updateRole(UUID diagramId, UUID memberId, String role, String subject) {
+        requireOwner(diagramId, subject);
+        if (!Set.of("EDITOR", "READER").contains(role)) {
+            throw new IllegalArgumentException("El rol debe ser EDITOR o READER");
+        }
+        DiagramMemberEntity member = members.findById(memberId)
+            .filter(value -> value.getDiagramId().equals(diagramId))
+            .orElseThrow(() -> new NotFoundException("Miembro no encontrado"));
+        if ("OWNER".equals(member.getRole())) throw new IllegalArgumentException("No se puede cambiar el rol del propietario");
+        member.setRole(role);
+        return members.save(member);
+    }
+
+    @Transactional
+    public void removeMember(UUID diagramId, UUID memberId, String subject) {
+        requireOwner(diagramId, subject);
+        DiagramMemberEntity member = members.findById(memberId)
+            .filter(value -> value.getDiagramId().equals(diagramId))
+            .orElseThrow(() -> new NotFoundException("Miembro no encontrado"));
+        if ("OWNER".equals(member.getRole())) throw new IllegalArgumentException("No se puede eliminar al propietario");
+        members.delete(member);
     }
 
     public List<ProjectSummary> projects(String subject) {

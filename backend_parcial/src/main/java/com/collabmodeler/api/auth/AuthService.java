@@ -64,7 +64,11 @@ public class AuthService {
         if (formal != null && formal.email() != null && !formal.email().equals(email)) {
             throw new AuthException(HttpStatus.FORBIDDEN, "INVITATION_EMAIL_MISMATCH", "La invitación pertenece a otro correo.");
         }
-        if (store.accountByEmail(email).isPresent()) throw new ConflictException("ACCOUNT_EXISTS", "Ya existe una cuenta para ese correo.", null, null, null);
+        AuthStore.Account existing = store.accountByEmail(email).orElse(null);
+        if (existing != null) {
+            if (!existing.verified()) issueVerification(existing);
+            return;
+        }
         try {
             AuthStore.Account account = store.createAccount(email, cleanName(fullName), false);
             store.createIdentity(account.id(), "LOCAL", email, passwords.encode(password));
@@ -72,7 +76,8 @@ public class AuthService {
             if (diagramId != null) store.addPendingJoin(account.id(), diagramId);
             issueVerification(account);
         } catch (DataIntegrityViolationException exception) {
-            throw new ConflictException("ACCOUNT_EXISTS", "Ya existe una cuenta para ese correo.", null, null, null);
+            // Una carrera con otro registro conserva la respuesta genérica para no enumerar cuentas.
+            return;
         }
     }
 

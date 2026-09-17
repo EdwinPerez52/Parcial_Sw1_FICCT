@@ -59,6 +59,21 @@ function applyWithoutRevision(diagram: DiagramModel, operation: DiagramOperation
       return { ...diagram, enumerations: diagram.enumerations.map(old => old.id === value.id ? { ...value, kind: 'enumeration', version: old.version + 1,
         values: value.values.map(item => ({ ...item, version: old.values.find(candidate => candidate.id === item.id)?.version ?? 1 })) } : old) };
     }
+    case 'ENUMERATION_VALUE_CREATED': {
+      const enumerationId = String(payload.enumerationId); const value = clone(payload.value) as { id: string; name: string; version: number };
+      return { ...diagram, enumerations: diagram.enumerations.map(old => old.id === enumerationId
+        ? { ...old, version: old.version + 1, values: [...old.values, { ...value, version: 1 }] } : old) };
+    }
+    case 'ENUMERATION_VALUE_UPDATED': {
+      const enumerationId = String(payload.enumerationId); const value = clone(payload.value) as { id: string; name: string; version: number };
+      return { ...diagram, enumerations: diagram.enumerations.map(old => old.id === enumerationId
+        ? { ...old, version: old.version + 1, values: old.values.map(entry => entry.id === value.id ? { ...value, version: entry.version + 1 } : entry) } : old) };
+    }
+    case 'ENUMERATION_VALUE_DELETED': {
+      const enumerationId = String(payload.enumerationId);
+      return { ...diagram, enumerations: diagram.enumerations.map(old => old.id === enumerationId
+        ? { ...old, version: old.version + 1, values: old.values.filter(entry => entry.id !== String(payload.id)) } : old) };
+    }
     case 'ENUMERATION_DELETED': return { ...diagram, enumerations: diagram.enumerations.filter(value => value.id !== String(payload.id)) };
     case 'GENERALIZATION_CREATED': return { ...diagram, generalizations: [...diagram.generalizations, { ...(clone(payload) as unknown as Generalization), version: 1 }] };
     case 'GENERALIZATION_DELETED': return { ...diagram, generalizations: diagram.generalizations.filter(value => value.id !== String(payload.id)) };

@@ -28,4 +28,5 @@ public class DiagramMemberEntity {
     public String getRole() { return role; }
     public Instant getJoinedAt() { return joinedAt; }
     public void setAccountId(UUID accountId) { this.accountId = accountId; }
+    public void setRole(String role) { this.role = role; }
 }

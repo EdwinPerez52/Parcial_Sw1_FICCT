@@ -5,6 +5,7 @@ import com.collabmodeler.api.collaboration.CollaborationEventPublisher;
 import com.collabmodeler.api.diagram.DiagramDocument;
 import com.collabmodeler.api.diagram.DiagramService;
 import com.collabmodeler.api.support.NotFoundException;
+import com.collabmodeler.api.support.ConflictException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -43,9 +44,13 @@ public class CommentService {
         return saved;
     }
     @Transactional
-    public CommentEntity resolve(UUID diagramId, UUID commentId, boolean resolved, String subject, String name) {
+    public CommentEntity resolve(UUID diagramId, UUID commentId, boolean resolved, long expectedVersion, String subject, String name) {
         CommentEntity comment = comments.findById(commentId).filter(value -> value.getDiagramId().equals(diagramId))
             .orElseThrow(() -> new NotFoundException("Comentario no encontrado"));
+        if (comment.getVersion() != expectedVersion) {
+            throw new ConflictException("COMMENT_VERSION_MISMATCH", "La conversación cambió en otra sesión",
+                null, commentId, expectedVersion, comment.getVersion());
+        }
         comment.setResolved(resolved, subject);
         CommentEntity saved = comments.save(comment);
         events.publish(diagramId, "COMMENT_UPDATED", saved);

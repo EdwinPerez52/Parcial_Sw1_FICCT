@@ -40,7 +40,7 @@ class DiagramServiceTest {
         payload.putObject("position").put("x", 10).put("y", 20);
         payload.putArray("attributes");
         var result = service.apply(diagramId,
-            new DiagramOperationRequest(UUID.randomUUID(), 0, null, "CLASS_CREATED", payload), "user", "User");
+            new DiagramOperationRequest(UUID.randomUUID(), 0L, null, "CLASS_CREATED", payload), "user", "User");
 
         assertEquals(1, result.revision());
         assertEquals("Producto", result.classes().getFirst().name());
@@ -57,6 +57,6 @@ class DiagramServiceTest {
         var service = new DiagramService(diagrams, operations, mapper, access);
 
         assertThrows(ConflictException.class, () -> service.apply(diagramId,
-            new DiagramOperationRequest(UUID.randomUUID(), 3, null, "CLASS_CREATED", mapper.createObjectNode()), "user", "User"));
+            new DiagramOperationRequest(UUID.randomUUID(), 3L, null, "CLASS_CREATED", mapper.createObjectNode()), "user", "User"));
     }
 }

@@ -30,6 +30,7 @@ export interface CurrentUser {
   verified: boolean; platformAdmin: boolean; csrfToken: string;
 }
 export interface ProjectSummary { id: string; name: string; role: 'OWNER' | 'EDITOR' | 'READER'; revision: number; updatedAt: string }
+export interface MemberItem { id: string; displayName: string; role: 'OWNER' | 'EDITOR' | 'READER' | 'PENDING'; joinedAt: string }
 export interface InvitationInfo { valid: boolean; email: string | null; diagramId: string | null; registrationAllowed: boolean }
 
 export const authApi = {
@@ -54,6 +55,11 @@ export const diagramApi = {
   operations: (id: string, since: number) => raw<RemoteOperation[]>(`/api/v1/diagrams/${id}/operations?since=${since}`),
   share: (id: string) => raw<{ token: string; path: string }>(`/api/v1/diagrams/${id}/share-link`, { method: 'POST' }),
   revokeShare: (id: string) => raw<void>(`/api/v1/diagrams/${id}/share-link`, { method: 'DELETE' }),
+  members: (id: string) => raw<MemberItem[]>(`/api/v1/diagrams/${id}/members`),
+  updateMember: (id: string, memberId: string, role: 'EDITOR' | 'READER') => raw<MemberItem>(`/api/v1/diagrams/${id}/members/${memberId}`, {
+    method: 'PATCH', body: JSON.stringify({ role }),
+  }),
+  removeMember: (id: string, memberId: string) => raw<void>(`/api/v1/diagrams/${id}/members/${memberId}`, { method: 'DELETE' }),
   join: (token: string) => raw<{ diagramId: string }>(`/api/v1/join/${encodeURIComponent(token)}`, { method: 'POST' }),
   generationUrl: (id: string) => `/api/v1/diagrams/${id}/generation?groupId=com.generated&artifactId=generated-api`,
 };
@@ -66,7 +72,7 @@ export interface RemoteOperation {
 export interface CommentItem {
   id: string; diagramId: string; targetType: 'DIAGRAM' | 'CLASS' | 'ATTRIBUTE' | 'ASSOCIATION' | 'ENUMERATION' | 'GENERALIZATION';
   targetId: string | null; parentCommentId: string | null; body: string; authorName: string; resolved: boolean;
-  createdAt: string; updatedAt: string; resolvedAt: string | null;
+  createdAt: string; updatedAt: string; resolvedAt: string | null; version: number;
 }
 export interface VersionItem { id: string; sourceRevision: number; label: string; authorName: string; createdAt: string; snapshot: DiagramModel }
 export interface ActivityItem { id: string; eventType: string; summary: string; actorName: string; elementId: string | null; createdAt: string }
@@ -75,8 +81,8 @@ export const collaborationApi = {
   comments: (id: string) => raw<CommentItem[]>(`/api/v1/diagrams/${id}/comments`),
   comment: (id: string, input: { targetType: CommentItem['targetType']; targetId?: string; parentCommentId?: string; body: string }) =>
     raw<CommentItem>(`/api/v1/diagrams/${id}/comments`, { method: 'POST', body: JSON.stringify(input) }),
-  resolveComment: (id: string, commentId: string, resolved: boolean) =>
-    raw<CommentItem>(`/api/v1/diagrams/${id}/comments/${commentId}`, { method: 'PATCH', body: JSON.stringify({ resolved }) }),
+  resolveComment: (id: string, commentId: string, resolved: boolean, expectedVersion: number) =>
+    raw<CommentItem>(`/api/v1/diagrams/${id}/comments/${commentId}`, { method: 'PATCH', body: JSON.stringify({ resolved, expectedVersion }) }),
   versions: (id: string) => raw<VersionItem[]>(`/api/v1/diagrams/${id}/versions`),
   createVersion: (id: string, label: string) => raw<VersionItem>(`/api/v1/diagrams/${id}/versions`, { method: 'POST', body: JSON.stringify({ label }) }),
   restoreVersion: (id: string, versionId: string, expectedRevision: number) => raw<DiagramModel>(`/api/v1/diagrams/${id}/versions/${versionId}/restore`, {

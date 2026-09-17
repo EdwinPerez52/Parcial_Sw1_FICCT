@@ -8,7 +8,9 @@ import com.collabmodeler.api.version.DiagramVersionEntity;
 import com.collabmodeler.api.version.DiagramVersionRepository;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.jdbc.AutoConfigureTestDatabase;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
@@ -24,13 +26,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @DataJpaTest
 @ActiveProfiles("test")
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@EnabledIfEnvironmentVariable(named = "TEST_DATABASE_URL", matches = ".+")
+@Testcontainers(disabledWithoutDocker = true)
 class ExternalPostgresPersistenceTest {
+    @Container static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:17-alpine");
     @DynamicPropertySource
     static void database(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", () -> System.getenv("TEST_DATABASE_URL"));
-        registry.add("spring.datasource.username", () -> System.getenv().getOrDefault("TEST_DATABASE_USER", "modeler"));
-        registry.add("spring.datasource.password", () -> System.getenv().getOrDefault("TEST_DATABASE_PASSWORD", ""));
+        registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
+        registry.add("spring.datasource.username", POSTGRES::getUsername);
+        registry.add("spring.datasource.password", POSTGRES::getPassword);
     }
 
     @Autowired DiagramRepository diagrams;
@@ -42,7 +45,7 @@ class ExternalPostgresPersistenceTest {
 
     @Test
     void cleanPostgresMigratesAndPersistsTheWholeAggregate() {
-        assertEquals("6", flyway.info().current().getVersion().getVersion());
+        assertEquals("7", flyway.info().current().getVersion().getVersion());
         UUID diagramId = UUID.randomUUID();
         var diagram = new DiagramEntity(diagramId, "Salud",
             "{\"id\":\"%s\",\"name\":\"Salud\",\"revision\":0,\"classes\":[],\"enumerations\":[],\"associations\":[],\"generalizations\":[]}".formatted(diagramId),

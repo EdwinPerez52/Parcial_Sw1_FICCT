@@ -3,6 +3,8 @@ package com.collabmodeler.api.config;
 import com.collabmodeler.api.collaboration.DiagramChannelInterceptor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.env.Environment;
+import org.springframework.core.env.Profiles;
 import org.springframework.messaging.simp.config.ChannelRegistration;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
 import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
@@ -18,10 +20,15 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     private final String[] allowedOrigins;
 
     public WebSocketConfig(DiagramChannelInterceptor authorization,
-                           @Value("${app.collaboration.allowed-origins:http://localhost:5173}") String allowedOrigins) {
+                           @Value("${app.collaboration.allowed-origins:http://localhost:5173}") String allowedOrigins,
+                           Environment environment) {
         this.authorization = authorization;
         this.allowedOrigins = Arrays.stream(allowedOrigins.split(","))
             .map(String::trim).filter(value -> !value.isBlank()).toArray(String[]::new);
+        if (environment.acceptsProfiles(Profiles.of("prod"))
+            && Arrays.stream(this.allowedOrigins).anyMatch("*"::equals)) {
+            throw new IllegalStateException("WEBSOCKET_ALLOWED_ORIGINS no puede contener '*' en producción");
+        }
     }
 
     @Override

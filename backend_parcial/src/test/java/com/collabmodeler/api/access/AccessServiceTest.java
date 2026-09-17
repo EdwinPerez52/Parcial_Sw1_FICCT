@@ -13,6 +13,7 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verify;
 
 @ExtendWith(MockitoExtension.class)
 class AccessServiceTest {
@@ -35,5 +36,35 @@ class AccessServiceTest {
         assertDoesNotThrow(() -> service.requireEditor(diagramId, "editor"));
         assertThrows(AccessDeniedException.class, () -> service.requireEditor(diagramId, "outsider"));
         assertThrows(AccessDeniedException.class, () -> service.requireMember(diagramId, "pending"));
+    }
+
+    @Test
+    void ownerCanChangeAndRemoveNonOwnerMembers() {
+        UUID diagramId = UUID.randomUUID(); UUID memberId = UUID.randomUUID();
+        AccessService service = new AccessService(diagrams, members);
+        DiagramMemberEntity owner = new DiagramMemberEntity(diagramId, "owner", "Owner", "OWNER");
+        DiagramMemberEntity reader = new DiagramMemberEntity(diagramId, "reader", "Reader", "READER");
+        when(members.findByDiagramIdAndSubject(diagramId, "owner")).thenReturn(Optional.of(owner));
+        when(members.findById(memberId)).thenReturn(Optional.of(reader));
+
+        service.updateRole(diagramId, memberId, "EDITOR", "owner");
+        assertDoesNotThrow(() -> service.removeMember(diagramId, memberId, "owner"));
+        verify(members).save(reader);
+        verify(members).delete(reader);
+    }
+
+    @Test
+    void ownerCannotBeDemotedOrRemovedAndReaderCannotAdminister() {
+        UUID diagramId = UUID.randomUUID(); UUID memberId = UUID.randomUUID();
+        AccessService service = new AccessService(diagrams, members);
+        DiagramMemberEntity owner = new DiagramMemberEntity(diagramId, "owner", "Owner", "OWNER");
+        DiagramMemberEntity reader = new DiagramMemberEntity(diagramId, "reader", "Reader", "READER");
+        when(members.findByDiagramIdAndSubject(diagramId, "owner")).thenReturn(Optional.of(owner));
+        when(members.findByDiagramIdAndSubject(diagramId, "reader")).thenReturn(Optional.of(reader));
+        when(members.findById(memberId)).thenReturn(Optional.of(owner));
+
+        assertThrows(IllegalArgumentException.class, () -> service.updateRole(diagramId, memberId, "READER", "owner"));
+        assertThrows(IllegalArgumentException.class, () -> service.removeMember(diagramId, memberId, "owner"));
+        assertThrows(AccessDeniedException.class, () -> service.updateRole(diagramId, memberId, "EDITOR", "reader"));
     }
 }

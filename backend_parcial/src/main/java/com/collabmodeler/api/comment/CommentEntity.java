@@ -20,6 +20,7 @@ public class CommentEntity {
     @Column(name = "updated_at", nullable = false) private Instant updatedAt;
     @Column(name = "resolved_at") private Instant resolvedAt;
     @Column(name = "resolved_by_subject") private String resolvedBySubject;
+    @Version @Column(nullable = false) private long version;
 
     protected CommentEntity() {}
     public CommentEntity(UUID diagramId, String targetType, UUID targetId, String body, String authorSubject, String authorName) {
@@ -44,6 +45,7 @@ public class CommentEntity {
     public Instant getUpdatedAt() { return updatedAt; }
     public Instant getResolvedAt() { return resolvedAt; }
     public String getResolvedBySubject() { return resolvedBySubject; }
+    public long getVersion() { return version; }
     public void setResolved(boolean resolved, String subject) {
         this.resolved = resolved; this.updatedAt = Instant.now();
         this.resolvedAt = resolved ? updatedAt : null; this.resolvedBySubject = resolved ? subject : null;

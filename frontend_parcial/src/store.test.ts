@@ -69,6 +69,9 @@ describe('diagram store', () => {
     useDiagramStore.getState().updateEnumeration({
       ...status, values: [{ id: crypto.randomUUID(), name: 'ACTIVO', version: 1 }],
     });
+    const enumerationOperation = useDiagramStore.getState().history.at(-1)?.redo;
+    expect(enumerationOperation?.type).toBe('BATCH');
+    expect((enumerationOperation?.payload as { operations: Array<{ type: string }> }).operations[0].type).toBe('ENUMERATION_VALUE_CREATED');
     useDiagramStore.getState().addGeneralization(person.id, student.id);
     expect(useDiagramStore.getState().diagram.enumerations[0].values[0].name).toBe('ACTIVO');
     expect(useDiagramStore.getState().diagram.generalizations[0]).toMatchObject({ parentId: person.id, childId: student.id });
@@ -82,5 +85,22 @@ describe('diagram store', () => {
     expect(useDiagramStore.getState().redoHistory).toHaveLength(1);
     useDiagramStore.getState().redo();
     expect(useDiagramStore.getState().diagram.classes[0].name).toBe('Producto');
+  });
+
+  it('undoes only the local action after an unrelated remote change arrives', () => {
+    const local = useDiagramStore.getState().addClass('Local');
+    const afterLocal = useDiagramStore.getState().diagram;
+    const remote = {
+      id: crypto.randomUUID(), kind: 'class' as const, name: 'Remota', attributes: [],
+      position: { x: 400, y: 100 }, version: 1,
+    };
+    useDiagramStore.getState().acceptAuthoritative({
+      ...afterLocal, revision: afterLocal.revision + 1, classes: [...afterLocal.classes, remote],
+    });
+
+    useDiagramStore.getState().undo();
+
+    expect(useDiagramStore.getState().diagram.classes.map(item => item.name)).toEqual(['Remota']);
+    expect(useDiagramStore.getState().diagram.classes.some(item => item.id === local.id)).toBe(false);
   });
 });

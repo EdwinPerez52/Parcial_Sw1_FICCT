@@ -34,6 +34,22 @@ public class AccessController {
     @GetMapping("/diagrams/{id}/members")
     List<DiagramMemberEntity> members(@PathVariable UUID id, Principal principal) { return access.list(id, subject(principal)); }
 
+    @PatchMapping("/diagrams/{id}/members/{memberId}")
+    DiagramMemberEntity updateMember(@PathVariable UUID id, @PathVariable UUID memberId,
+                                     @RequestBody UpdateMemberRequest request, Principal principal) {
+        requireVerified(principal);
+        return access.updateRole(id, memberId, request.role(), subject(principal));
+    }
+
+    @DeleteMapping("/diagrams/{id}/members/{memberId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    void removeMember(@PathVariable UUID id, @PathVariable UUID memberId, Principal principal) {
+        requireVerified(principal);
+        access.removeMember(id, memberId, subject(principal));
+    }
+
+    record UpdateMemberRequest(String role) {}
+
     public static String subject(Principal principal) {
         if (principal == null) throw new AccessDeniedException("Debes iniciar sesión");
         return principal.getName();

@@ -9,7 +9,7 @@ import java.util.UUID;
 
 public record DiagramOperationRequest(
     @NotNull UUID operationId,
-    @PositiveOrZero long baseRevision,
+    @NotNull @PositiveOrZero Long baseRevision,
     Long expectedElementVersion,
     @NotBlank String type,
     @NotNull JsonNode payload
