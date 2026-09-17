@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Background, Connection, Controls, Edge, MarkerType, MiniMap, Node, ReactFlow } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { Bot, Braces, Camera, Cloud, History, ListTree, LogOut, MessageSquare, Mic, Plus, Redo2, Share2, Undo2, Users, XCircle } from 'lucide-react';
@@ -144,6 +144,10 @@ export default function App({ projectId, userName, role, onBack, onLogout }: { p
     })),
   ], [diagram.associations, diagram.generalizations, selectedIds]);
 
+  const handleSelectionChange = useCallback(({ nodes: selectedNodes, edges: selectedEdges }: { nodes: Node[]; edges: Edge[] }) => {
+    selectElements([...selectedNodes, ...selectedEdges].map(item => item.id));
+  }, [selectElements]);
+
   const executeCommand = (event: FormEvent) => {
     event.preventDefault();
     const intent = parseAssistantCommand(command);
@@ -211,8 +215,7 @@ export default function App({ projectId, userName, role, onBack, onLogout }: { p
           nodes={nodes} edges={edges} nodeTypes={nodeTypes} fitView selectionOnDrag
           multiSelectionKeyCode={['Control', 'Meta']}
           onConnect={connect}
-          onSelectionChange={({ nodes: selectedNodes, edges: selectedEdges }) =>
-            selectElements([...selectedNodes, ...selectedEdges].map(item => item.id))}
+          onSelectionChange={handleSelectionChange}
           onNodeDragStop={(_, node) => {
             const original = diagram.classes.find(item => item.id === node.id);
             const originalEnumeration = diagram.enumerations.find(item => item.id === node.id);
