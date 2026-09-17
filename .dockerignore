@@ -1,0 +1,16 @@
+# Las dependencias se instalan dentro de cada imagen; no copies enlaces ni
+# binarios creados en el host Windows al contexto de Docker.
+**/node_modules
+**/dist
+**/.vite
+**/*.tsbuildinfo
+
+# Artefactos de compilación y cachés locales.
+backend_parcial/target
+.m2
+.git
+
+# Configuración local que no debe formar parte de las imágenes.
+.env
+.env.*
+!.env.example

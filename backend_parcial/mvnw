@@ -1,0 +1,14 @@
+#!/bin/sh
+set -eu
+project_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+maven_version=3.9.11
+maven_home="$project_dir/.mvn/wrapper/dists/apache-maven-$maven_version"
+if [ ! -x "$maven_home/bin/mvn" ]; then
+  mkdir -p "$project_dir/.mvn/wrapper/dists"
+  archive="$project_dir/.mvn/wrapper/dists/apache-maven.tar.gz"
+  url="https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/$maven_version/apache-maven-$maven_version-bin.tar.gz"
+  if command -v curl >/dev/null 2>&1; then curl -fsSL "$url" -o "$archive"; else wget -q "$url" -O "$archive"; fi
+  tar -xzf "$archive" -C "$project_dir/.mvn/wrapper/dists"
+  rm -f "$archive"
+fi
+exec "$maven_home/bin/mvn" "$@"

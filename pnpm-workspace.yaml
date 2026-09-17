@@ -1,0 +1,9 @@
+packages:
+  - frontend_parcial
+
+onlyBuiltDependencies:
+  - esbuild
+
+confirmModulesPurge: false
+allowBuilds:
+  esbuild: true

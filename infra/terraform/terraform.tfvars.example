@@ -1,0 +1,8 @@
+aws_region          = "us-east-1"
+environment         = "dev"
+project_name        = "collab-modeler"
+api_image           = "123456789012.dkr.ecr.us-east-1.amazonaws.com/collab-modeler-dev-api:sha-0000000"
+google_client_id    = "replace-me.apps.googleusercontent.com"
+google_client_secret = "replace-me"
+ai_api_key          = "replace-me"
+
