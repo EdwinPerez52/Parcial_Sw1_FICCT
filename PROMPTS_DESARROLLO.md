@@ -164,7 +164,7 @@ Implementa en el frontend selección de archivo, vista previa, advertencias y co
 Criterio de aceptación: realiza pruebas round-trip con varios archivos XMI representativos de Enterprise Architect y compara semánticamente el modelo original con el reimportado.
 ```
 
-## 13. Asistente de texto y arquitectura de proveedores de IA
+--## 13. Asistente de texto y arquitectura de proveedores de IA
 
 ```text
 Objetivo: transformar instrucciones naturales en operaciones estructuradas seguras.
