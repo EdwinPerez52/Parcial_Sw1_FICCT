@@ -37,8 +37,22 @@ public class ExchangeController {
 
     @PostMapping(value = "/xmi/preview", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     XmiService.ImportResult preview(@RequestPart("file") MultipartFile file) throws IOException {
-        if (file.getSize() > 5_000_000) throw new IllegalArgumentException("El XMI supera el límite de 5 MB");
-        return xmi.importXmi(file.getBytes(), "Modelo importado");
+        return parse(file);
+    }
+
+    @PostMapping(value = "/{id}/xmi/preview", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    XmiService.ImportResult previewForDiagram(@PathVariable UUID id, @RequestPart("file") MultipartFile file,
+                                              Principal principal) throws IOException {
+        AccessController.requireVerified(principal);
+        access.requireEditor(id, AccessController.subject(principal));
+        return parse(file);
+    }
+
+    private XmiService.ImportResult parse(MultipartFile file) throws IOException {
+        if (file.isEmpty()) throw new IllegalArgumentException("Selecciona un archivo XMI no vacío");
+        if (file.getSize() > XmiService.MAX_BYTES) throw new IllegalArgumentException("El XMI supera el límite de 5 MB");
+        String originalName = file.getOriginalFilename();
+        String fallback = originalName == null ? "Modelo_importado" : originalName.replaceFirst("(?i)\\.(xmi|xml)$", "");
+        return xmi.importXmi(file.getBytes(), fallback.isBlank() ? "Modelo_importado" : fallback);
     }
 }
-

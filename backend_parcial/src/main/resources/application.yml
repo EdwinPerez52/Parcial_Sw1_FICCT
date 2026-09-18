@@ -20,6 +20,10 @@ spring:
   data:
     redis:
       url: ${REDIS_URL:redis://localhost:6379}
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 6MB
 server:
   forward-headers-strategy: framework
   servlet:

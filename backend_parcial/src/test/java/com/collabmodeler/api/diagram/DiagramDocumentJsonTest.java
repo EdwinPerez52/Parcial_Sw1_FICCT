@@ -32,7 +32,8 @@ class DiagramDocumentJsonTest {
             ), new DiagramDocument.Position(600, 20), 2)),
             List.of(new DiagramDocument.Association(UUID.randomUUID(), person, employee, "1", "0..*",
                 "atiende", "paciente", "medicos", "TARGET", 7)),
-            List.of(new DiagramDocument.Generalization(UUID.randomUUID(), person, employee, 2))
+            List.of(new DiagramDocument.Generalization(UUID.randomUUID(), person, employee, 2)),
+            List.of(new DiagramDocument.PackageElement(UUID.randomUUID(), "Dominio", null, List.of(person, employee, status), 1))
         );
 
         assertEquals(model, mapper.readValue(mapper.writeValueAsString(model), DiagramDocument.class));
@@ -47,5 +48,6 @@ class DiagramDocumentJsonTest {
         DiagramDocument result = mapper.readValue(json, DiagramDocument.class);
         assertEquals(List.of(), result.enumerations());
         assertEquals(List.of(), result.generalizations());
+        assertEquals(List.of(), result.packages());
     }
 }

@@ -14,7 +14,7 @@ describe('PropertyPanel', () => {
           id: '11111111-1111-4111-8111-111111111111', kind: 'class', name: 'Producto',
           attributes: [], position: { x: 0, y: 0 }, version: 1,
         }],
-        enumerations: [], associations: [], generalizations: [],
+        enumerations: [], associations: [], generalizations: [], packages: [],
       },
       diagramId: undefined, selectedIds: ['11111111-1111-4111-8111-111111111111'],
       history: [], syncState: 'offline', lastError: undefined,

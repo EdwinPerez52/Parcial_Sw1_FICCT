@@ -38,7 +38,7 @@ public class DiagramVersionService {
             DiagramDocument snapshot = mapper.readValue(version.getSnapshotJson(), DiagramDocument.class);
             long next = entity.getRevision() + 1;
             DiagramDocument restored = new DiagramDocument(diagramId, entity.getName(), next, snapshot.classes(),
-                snapshot.enumerations(), snapshot.associations(), snapshot.generalizations());
+                snapshot.enumerations(), snapshot.associations(), snapshot.generalizations(), snapshot.packages());
             entity.updateModel(next, mapper.writeValueAsString(restored));
             var payload = mapper.createObjectNode().put("versionId", versionId.toString());
             payload.set("model", mapper.valueToTree(restored));

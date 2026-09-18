@@ -62,7 +62,26 @@ export const diagramApi = {
   removeMember: (id: string, memberId: string) => raw<void>(`/api/v1/diagrams/${id}/members/${memberId}`, { method: 'DELETE' }),
   join: (token: string) => raw<{ diagramId: string }>(`/api/v1/join/${encodeURIComponent(token)}`, { method: 'POST' }),
   generationUrl: (id: string) => `/api/v1/diagrams/${id}/generation?groupId=com.generated&artifactId=generated-api`,
+  xmiExportUrl: (id: string) => `/api/v1/diagrams/${id}/xmi`,
 };
+
+export interface XmiWarning { code: string; message: string; externalId?: string; elementType?: string }
+export interface XmiImportPreview { diagram: DiagramModel; warnings: XmiWarning[] }
+
+export async function previewXmi(id: string, file: File): Promise<XmiImportPreview> {
+  const body = new FormData(); body.append('file', file);
+  return raw<XmiImportPreview>(`/api/v1/diagrams/${id}/xmi/preview`, { method: 'POST', body });
+}
+
+export async function downloadXmi(id: string, name: string): Promise<void> {
+  const response = await fetch(diagramApi.xmiExportUrl(id), { credentials: 'include' });
+  if (!response.ok) {
+    const problem = await response.json().catch(() => ({})) as { detail?: string; code?: string };
+    throw new ApiError(response.status, problem.code ?? `HTTP_${response.status}`, problem.detail ?? 'No se pudo exportar XMI');
+  }
+  const href = URL.createObjectURL(await response.blob());
+  const link = document.createElement('a'); link.href = href; link.download = `${name}.xmi`; link.click(); URL.revokeObjectURL(href);
+}
 
 export interface RemoteOperation {
   id: string; diagramId: string; baseRevision: number; resultRevision: number; type: DiagramOperation['type'];

@@ -48,5 +48,6 @@ Flyway es la única fuente del esquema y Hibernate usa `ddl-auto=validate`. Las 
 
 - Cada réplica mantiene un broker STOMP local; Redis distribuye eventos entre réplicas.
 - XMI conserva el modelo semántico, no el diseño propietario de Enterprise Architect.
+- La vista previa XMI es de solo lectura. La confirmación se traduce en un único `BATCH` del mismo flujo colaborativo; no existe una escritura lateral que evite revisiones, autorización, conflictos o deshacer.
 - La regeneración produce un ZIP nuevo y no mezcla código editado manualmente.
 - La aplicación Flutter y su generador se implementan en los incrementos 16–19.

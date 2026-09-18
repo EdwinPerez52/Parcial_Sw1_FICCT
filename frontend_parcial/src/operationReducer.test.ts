@@ -4,7 +4,7 @@ import { applyDiagramOperation } from './operationReducer';
 
 describe('operation reconciliation', () => {
   it('applies remote operations in revision order without replacing unrelated local content', () => {
-    const model: DiagramModel = { id: crypto.randomUUID(), name: 'M', revision: 4, classes: [], enumerations: [], associations: [], generalizations: [] };
+    const model: DiagramModel = { id: crypto.randomUUID(), name: 'M', revision: 4, classes: [], enumerations: [], associations: [], generalizations: [], packages: [] };
     const first = { operationId: crypto.randomUUID(), baseRevision: 4, type: 'CLASS_CREATED', payload: {
       id: crypto.randomUUID(), kind: 'class', name: 'Cliente', attributes: [], position: { x: 0, y: 0 }, version: 1,
     } } satisfies DiagramOperation;

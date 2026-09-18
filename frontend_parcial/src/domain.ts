@@ -60,6 +60,14 @@ export interface Generalization {
   version: number;
 }
 
+export interface PackageElement {
+  id: string;
+  name: string;
+  parentId?: string;
+  memberIds: string[];
+  version: number;
+}
+
 export interface DiagramModel {
   id: string;
   name: string;
@@ -68,6 +76,7 @@ export interface DiagramModel {
   enumerations: EnumerationElement[];
   associations: Association[];
   generalizations: Generalization[];
+  packages: PackageElement[];
 }
 
 export interface DiagramOperation {
@@ -81,6 +90,7 @@ export interface DiagramOperation {
     | 'ENUMERATION_CREATED' | 'ENUMERATION_UPDATED' | 'ENUMERATION_DELETED'
     | 'ENUMERATION_VALUE_CREATED' | 'ENUMERATION_VALUE_UPDATED' | 'ENUMERATION_VALUE_DELETED'
     | 'GENERALIZATION_CREATED' | 'GENERALIZATION_DELETED'
+    | 'PACKAGE_CREATED' | 'PACKAGE_UPDATED' | 'PACKAGE_DELETED'
     | 'BATCH' | 'MODEL_RESTORED';
   payload: unknown;
 }
@@ -108,5 +118,6 @@ export function normalizeDiagram(value: Partial<DiagramModel> & Pick<DiagramMode
     })),
     associations: (value.associations ?? []).map(item => ({ ...item, owningSide: item.owningSide ?? 'SOURCE' })),
     generalizations: value.generalizations ?? [],
+    packages: (value.packages ?? []).map(item => ({ ...item, memberIds: item.memberIds ?? [], version: item.version || 1 })),
   } as DiagramModel;
 }

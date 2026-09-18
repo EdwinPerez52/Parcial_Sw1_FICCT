@@ -1,13 +1,13 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Background, Connection, Controls, Edge, MarkerType, MiniMap, Node, ReactFlow } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Bot, Braces, Camera, Cloud, History, ListTree, LogOut, MessageSquare, Mic, Plus, Redo2, Share2, Undo2, Users, XCircle } from 'lucide-react';
+import { Bot, Braces, Camera, Cloud, Download, FileUp, History, ListTree, LogOut, MessageSquare, Mic, Plus, Redo2, Share2, Undo2, Users, XCircle } from 'lucide-react';
 import { parseAssistantCommand } from './assistant';
 import { ClassNode } from './ClassNode';
 import { EnumerationNode } from './EnumerationNode';
 import { PropertyPanel } from './PropertyPanel';
 import { useDiagramStore } from './store';
-import { ImageProposal, analyzeDiagramImage, diagramApi, downloadGeneratedBackend } from './api';
+import { ImageProposal, XmiImportPreview, analyzeDiagramImage, diagramApi, downloadGeneratedBackend, downloadXmi, previewXmi } from './api';
 import { dictate } from './speech';
 import { CommentsPanel, MembersPanel, VersionsPanel } from './CollaborationPanel';
 
@@ -21,13 +21,17 @@ export default function App({ projectId, userName, role, onBack, onLogout }: { p
     addClass, addEnumeration, updateEnumeration, moveClass, moveSelected, addAssociation, addAttribute,
     deleteClass, deleteSelected, undo, redo, participants, conflicts, pendingOperations, eventSequence,
     retryConflict, discardConflict, reapplyConflict, sendPresence, acceptAuthoritative,
+    replaceFromImport,
   } = store;
   const [command, setCommand] = useState('');
   const [assistantMessage, setAssistantMessage] = useState('Prueba: “crea una clase Producto”');
   const [panel, setPanel] = useState<'properties' | 'assistant' | 'comments' | 'history' | 'members'>('properties');
   const [imageProposal, setImageProposal] = useState<ImageProposal>();
   const [analyzingImage, setAnalyzingImage] = useState(false);
+  const [xmiPreview, setXmiPreview] = useState<XmiImportPreview>();
+  const [analyzingXmi, setAnalyzingXmi] = useState(false);
   const imageInput = useRef<HTMLInputElement>(null);
+  const xmiInput = useRef<HTMLInputElement>(null);
   const lastCursorSent = useRef(0);
 
   useEffect(() => {
@@ -120,6 +124,32 @@ export default function App({ projectId, userName, role, onBack, onLogout }: { p
     } catch (cause) { setAssistantMessage(cause instanceof Error ? cause.message : 'La propuesta contiene datos inválidos.'); }
   };
 
+  const inspectXmi = async (file?: File) => {
+    if (!file || !diagramId) return;
+    if (file.size > 5_000_000) { setAssistantMessage('El XMI supera el límite de 5 MB.'); return; }
+    setAnalyzingXmi(true);
+    try {
+      setXmiPreview(await previewXmi(diagramId, file));
+      setAssistantMessage('Revisa el contenido XMI antes de reemplazar el modelo actual.');
+    } catch (cause) { setAssistantMessage(cause instanceof Error ? cause.message : 'No se pudo leer el archivo XMI.'); }
+    finally { setAnalyzingXmi(false); if (xmiInput.current) xmiInput.current.value = ''; }
+  };
+
+  const acceptXmi = () => {
+    if (!xmiPreview) return;
+    try {
+      replaceFromImport(xmiPreview.diagram);
+      setXmiPreview(undefined);
+      setAssistantMessage('Importación XMI aplicada como un único lote. Puedes deshacerla con Ctrl+Z.');
+    } catch (cause) { setAssistantMessage(cause instanceof Error ? cause.message : 'El XMI no se pudo incorporar.'); }
+  };
+
+  const exportXmi = async () => {
+    if (!diagramId) return;
+    try { await downloadXmi(diagramId, diagram.name); setAssistantMessage('XMI 2.1 exportado.'); }
+    catch (cause) { setAssistantMessage(cause instanceof Error ? cause.message : 'No se pudo exportar XMI.'); }
+  };
+
   const nodes = useMemo<Node[]>(() => [
     ...diagram.classes.map(item => ({
       id: item.id, type: 'classNode', position: item.position,
@@ -205,6 +235,11 @@ export default function App({ projectId, userName, role, onBack, onLogout }: { p
           <div className="avatars" title={participants.map(value => value.displayName).join(', ')}>{participants.slice(0, 4).map(value => <span key={value.sessionId}>{value.displayName.split(/\s+/).map(part => part[0]).join('').slice(0, 2).toUpperCase()}</span>)}<b><Users size={14} /> {participants.length} en línea</b></div>
           {role === 'OWNER' && <button className="secondary" onClick={share} disabled={!diagramId}><Share2 size={16} /> Crear/rotar enlace</button>}
           {role === 'OWNER' && <button className="secondary" onClick={revokeShare} disabled={!diagramId}><XCircle size={16} /> Revocar</button>}
+          <button className="secondary" onClick={() => void exportXmi()}
+            disabled={!diagramId || pendingOperations.some(value => value.status !== 'acknowledged')}
+            title={pendingOperations.some(value => value.status !== 'acknowledged') ? 'Espera a que terminen de sincronizarse los cambios' : 'Exportar XMI 2.1'}>
+            <Download size={16} /> Exportar XMI
+          </button>
           <button className="primary" onClick={generate} disabled={!diagramId}>Generar backend</button>
           <button className="icon-button" onClick={onLogout} title="Cerrar sesión"><LogOut size={18} /></button>
         </div>
@@ -215,6 +250,8 @@ export default function App({ projectId, userName, role, onBack, onLogout }: { p
         <button title="Nueva enumeración" onClick={() => { try { addEnumeration(); } catch (cause) { setAssistantMessage(String(cause)); } }}><Braces /></button>
         <button title="Importar fotografía" onClick={() => imageInput.current?.click()} disabled={analyzingImage}><Camera /></button>
         <input ref={imageInput} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={event => void inspectImage(event.target.files?.[0])} />
+        <button title="Importar XMI 2.1" onClick={() => xmiInput.current?.click()} disabled={analyzingXmi}><FileUp /></button>
+        <input ref={xmiInput} type="file" accept=".xmi,.xml,application/xml,text/xml" hidden onChange={event => void inspectXmi(event.target.files?.[0])} />
         <div className="separator" />
         <button title="Deshacer (Ctrl+Z)" onClick={undo}><Undo2 /></button>
         <button title="Rehacer (Ctrl+Mayús+Z)" onClick={redo}><Redo2 /></button>
@@ -278,6 +315,25 @@ export default function App({ projectId, userName, role, onBack, onLogout }: { p
           </div>
           {imageProposal.warnings?.map(warning => <p className="warning" key={warning}>{warning}</p>)}
           <footer><button className="secondary" onClick={() => setImageProposal(undefined)}>Cancelar</button><button className="primary" onClick={acceptImageProposal}>Incorporar y corregir</button></footer>
+        </section>
+      </div>}
+
+      {xmiPreview && <div className="modal-backdrop">
+        <section className="proposal-modal" role="dialog" aria-modal="true" aria-labelledby="xmi-preview-title">
+          <h2 id="xmi-preview-title">Vista previa XMI 2.1</h2>
+          <p>Al confirmar se reemplazará el contenido del diagrama en una sola revisión versionada.</p>
+          <div className="xmi-summary">
+            <span><strong>{xmiPreview.diagram.packages.length}</strong> paquetes</span>
+            <span><strong>{xmiPreview.diagram.classes.length}</strong> clases</span>
+            <span><strong>{xmiPreview.diagram.enumerations.length}</strong> enumeraciones</span>
+            <span><strong>{xmiPreview.diagram.associations.length}</strong> asociaciones</span>
+            <span><strong>{xmiPreview.diagram.generalizations.length}</strong> generalizaciones</span>
+          </div>
+          <div className="proposal-grid">
+            {xmiPreview.diagram.classes.map(item => <article key={item.id}><strong>{item.name}</strong><span>{item.attributes.map(attribute => `${attribute.name}: ${attribute.type}`).join(', ') || 'Sin atributos'}</span></article>)}
+          </div>
+          {xmiPreview.warnings.length > 0 && <section className="xmi-warnings"><h3>Advertencias ({xmiPreview.warnings.length})</h3>{xmiPreview.warnings.map((warning, index) => <p className="warning" key={`${warning.code}-${warning.externalId ?? index}`}><strong>{warning.code}</strong> · {warning.message}</p>)}</section>}
+          <footer><button className="secondary" onClick={() => setXmiPreview(undefined)}>Cancelar</button><button className="primary" onClick={acceptXmi}>Confirmar importación</button></footer>
         </section>
       </div>}
     </main>

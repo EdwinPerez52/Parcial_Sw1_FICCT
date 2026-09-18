@@ -35,10 +35,15 @@ export interface DiagramState {
   reapplyConflict: (operationId: string) => void;
   sendPresence: (kind: 'CURSOR' | 'SELECTION' | 'ACTIVITY' | 'HEARTBEAT', data?: { cursor?: Position; selection?: string[]; activity?: string }) => void;
   acceptAuthoritative: (diagram: DiagramModel) => void;
+  replaceFromImport: (diagram: DiagramModel) => void;
 }
 
-const emptyDiagram = (): DiagramModel => ({ id: createId(), name: 'Modelo de datos', revision: 0, classes: [], enumerations: [], associations: [], generalizations: [] });
+const emptyDiagram = (): DiagramModel => ({ id: createId(), name: 'Modelo de datos', revision: 0, classes: [], enumerations: [], associations: [], generalizations: [], packages: [] });
 const snapshot = (diagram: DiagramModel) => structuredClone(diagram);
+const withoutPackageMembers = (diagram: DiagramModel, removed: Set<string>) => diagram.packages.map(value => {
+  const memberIds = value.memberIds.filter(id => !removed.has(id));
+  return memberIds.length === value.memberIds.length ? value : { ...value, memberIds, version: value.version + 1 };
+});
 const storageKey = (id: string) => `collab-modeler:pending:${id}`;
 let draining = false;
 let channel: DiagramChannel | undefined;
@@ -210,8 +215,9 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
   },
   deleteClass: id => {
     const before = get().diagram; const item = before.classes.find(value => value.id === id); if (!item) return;
+    const removed = new Set([id, ...before.associations.filter(link => link.sourceId === id || link.targetId === id).map(link => link.id)]);
     commit(before, { ...before, classes: before.classes.filter(value => value.id !== id), associations: before.associations.filter(link => link.sourceId !== id && link.targetId !== id),
-      generalizations: before.generalizations.filter(link => link.parentId !== id && link.childId !== id) }, operation('CLASS_DELETED', before.revision, { id }, item.version));
+      generalizations: before.generalizations.filter(link => link.parentId !== id && link.childId !== id), packages: withoutPackageMembers(before, removed) }, operation('CLASS_DELETED', before.revision, { id }, item.version));
     set({ selectedIds: get().selectedIds.filter(value => value !== id) });
   },
   deleteSelected: () => {
@@ -224,9 +230,11 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
     before.enumerations.filter(item => selected.has(item.id)).forEach(item => nested.push(operation('ENUMERATION_DELETED', before.revision, { id: item.id }, item.version)));
     before.classes.filter(item => selected.has(item.id)).forEach(item => nested.push(operation('CLASS_DELETED', before.revision, { id: item.id }, item.version))); if (!nested.length) return;
     const classIds = new Set(before.classes.filter(item => selected.has(item.id)).map(item => item.id));
+    const removedMembers = new Set([...selected, ...before.associations.filter(item => classIds.has(item.sourceId) || classIds.has(item.targetId)).map(item => item.id)]);
     commit(before, { ...before, classes: before.classes.filter(item => !selected.has(item.id)), enumerations: before.enumerations.filter(item => !selected.has(item.id)),
       associations: before.associations.filter(item => !selected.has(item.id) && !classIds.has(item.sourceId) && !classIds.has(item.targetId)),
-      generalizations: before.generalizations.filter(item => !selected.has(item.id) && !classIds.has(item.parentId) && !classIds.has(item.childId)) }, operation('BATCH', before.revision, { operations: nested })); set({ selectedIds: [] });
+      generalizations: before.generalizations.filter(item => !selected.has(item.id) && !classIds.has(item.parentId) && !classIds.has(item.childId)),
+      packages: withoutPackageMembers(before, removedMembers) }, operation('BATCH', before.revision, { operations: nested })); set({ selectedIds: [] });
   },
   addAttribute: (classId, input) => {
     assertName(input.name, 'atributo'); const before = get().diagram; assertAttributeType(before, input.type); const owner = before.classes.find(item => item.id === classId); if (!owner) throw new Error('Clase no encontrada');
@@ -286,7 +294,7 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
   deleteEnumeration: id => {
     const before = get().diagram; const old = before.enumerations.find(item => item.id === id); if (!old) return;
     if (before.classes.some(item => item.attributes.some(attribute => attribute.type === old.name || attribute.type === old.id))) throw new Error('No se puede eliminar una enumeración utilizada');
-    commit(before, { ...before, enumerations: before.enumerations.filter(item => item.id !== id) }, operation('ENUMERATION_DELETED', before.revision, { id }, old.version)); set({ selectedIds: get().selectedIds.filter(value => value !== id) });
+    commit(before, { ...before, enumerations: before.enumerations.filter(item => item.id !== id), packages: withoutPackageMembers(before, new Set([id])) }, operation('ENUMERATION_DELETED', before.revision, { id }, old.version)); set({ selectedIds: get().selectedIds.filter(value => value !== id) });
   },
   addAssociation: input => {
     const before = get().diagram; if (!before.classes.some(item => item.id === input.sourceId) || !before.classes.some(item => item.id === input.targetId)) throw new Error('La asociación referencia una clase inexistente');
@@ -300,7 +308,7 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
   },
   deleteAssociation: id => {
     const before = get().diagram; const old = before.associations.find(item => item.id === id); if (!old) return;
-    commit(before, { ...before, associations: before.associations.filter(item => item.id !== id) }, operation('ASSOCIATION_DELETED', before.revision, { id }, old.version)); set({ selectedIds: get().selectedIds.filter(value => value !== id) });
+    commit(before, { ...before, associations: before.associations.filter(item => item.id !== id), packages: withoutPackageMembers(before, new Set([id])) }, operation('ASSOCIATION_DELETED', before.revision, { id }, old.version)); set({ selectedIds: get().selectedIds.filter(value => value !== id) });
   },
   addGeneralization: (parentId, childId) => {
     if (parentId === childId) throw new Error('Una clase no puede heredarse a sí misma'); const before = get().diagram;
@@ -345,6 +353,14 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
   },
   sendPresence: (kind, data = {}) => channel?.presence({ kind, ...data }),
   acceptAuthoritative: value => { const remote = normalizeDiagram(value); const state = get(); set({ serverDiagram: remote, confirmedRevision: remote.revision, diagram: replay(remote, state.pendingOperations), eventSequence: state.eventSequence + 1 }); },
+  replaceFromImport: value => {
+    const before = get().diagram;
+    const target = normalizeDiagram({ ...value, id: before.id, name: before.name, revision: before.revision });
+    const batch = transition(before, target);
+    if (!batch) return;
+    commit(before, applyDiagramOperation(before, batch, before.revision), batch);
+    set({ selectedIds: [] });
+  },
 }));
 
 function rebaseOperation(value: DiagramOperation, diagram: DiagramModel): DiagramOperation {
@@ -360,6 +376,7 @@ function rebaseOperation(value: DiagramOperation, diagram: DiagramModel): Diagra
     op.type === 'ATTRIBUTE_DELETED' ? payload.id : payload.id ?? payload.classId ?? '');
   const found = diagram.classes.find(item => item.id === id) ?? diagram.enumerations.find(item => item.id === id)
     ?? diagram.associations.find(item => item.id === id) ?? diagram.generalizations.find(item => item.id === id)
+    ?? diagram.packages.find(item => item.id === id)
     ?? diagram.classes.flatMap(item => item.attributes).find(item => item.id === id);
   if (op.expectedElementVersion !== undefined && found) op.expectedElementVersion = found.version;
   return op;
@@ -387,8 +404,24 @@ function transition(from: DiagramModel, target: DiagramModel): DiagramOperation 
       if (actual !== index) push(make('ATTRIBUTE_REORDERED', { classId: item.id, attributeId: attribute.id, newIndex: index }, owner.version)); });
   });
   working.enumerations.filter(item => !target.enumerations.some(value => value.id === item.id)).forEach(item => push(make('ENUMERATION_DELETED', { id: item.id }, item.version)));
+  const packageDepth = (id: string): number => { const value = working.packages.find(item => item.id === id); return value?.parentId ? 1 + packageDepth(value.parentId) : 0; };
+  working.packages.filter(item => !target.packages.some(value => value.id === item.id)).sort((a, b) => packageDepth(b.id) - packageDepth(a.id))
+    .forEach(item => {
+      let current = working.packages.find(value => value.id === item.id)!;
+      if (current.memberIds.length) {
+        push(make('PACKAGE_UPDATED', { ...current, memberIds: [] }, current.version));
+        current = working.packages.find(value => value.id === item.id)!;
+      }
+      push(make('PACKAGE_DELETED', { id: item.id }, current.version));
+    });
   target.associations.forEach(item => { const old = working.associations.find(value => value.id === item.id); if (!old) push(make('ASSOCIATION_CREATED', item)); else if (semantic(old) !== semantic(item)) push(make('ASSOCIATION_UPDATED', item, old.version)); });
   target.generalizations.filter(item => !working.generalizations.some(value => value.id === item.id)).forEach(item => push(make('GENERALIZATION_CREATED', item)));
+  const targetPackageDepth = (id: string): number => { const value = target.packages.find(item => item.id === id); return value?.parentId ? 1 + targetPackageDepth(value.parentId) : 0; };
+  target.packages.slice().sort((a, b) => targetPackageDepth(a.id) - targetPackageDepth(b.id)).forEach(item => {
+    const old = working.packages.find(value => value.id === item.id);
+    if (!old) push(make('PACKAGE_CREATED', item));
+    else if (semantic(old) !== semantic(item)) push(make('PACKAGE_UPDATED', item, old.version));
+  });
   return operations.length ? operation('BATCH', from.revision, { operations }) : undefined;
 }
 function semantic(value: unknown) { return JSON.stringify(value, (key, item) => key === 'version' || key === 'revision' ? undefined : item); }

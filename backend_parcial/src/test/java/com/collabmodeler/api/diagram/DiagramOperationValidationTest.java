@@ -97,6 +97,34 @@ class DiagramOperationValidationTest {
     }
 
     @Test
+    void importedPackagesAreCommittedAndRemovedAsSingleVersionedBatches() {
+        UUID packageId = UUID.randomUUID();
+        ObjectNode createPayload = mapper.createObjectNode();
+        ObjectNode packageValue = mapper.createObjectNode().put("id", packageId.toString()).put("name", "Ventas").put("version", 1);
+        packageValue.putArray("memberIds").add(firstId.toString()).add(secondId.toString());
+        createPayload.putArray("operations").add(operationNode("PACKAGE_CREATED", packageValue));
+
+        DiagramDocument imported = service.apply(diagramId,
+            new DiagramOperationRequest(UUID.randomUUID(), 0L, null, "BATCH", createPayload), "u", "User");
+
+        assertEquals(1, imported.revision());
+        assertEquals(List.of(firstId, secondId), imported.packages().getFirst().memberIds());
+
+        ObjectNode undoPayload = mapper.createObjectNode();
+        ObjectNode update = packageValue.deepCopy(); update.putArray("memberIds");
+        ObjectNode updateOperation = operationNode("PACKAGE_UPDATED", update); updateOperation.put("expectedElementVersion", 1);
+        ObjectNode deleteOperation = operationNode("PACKAGE_DELETED", mapper.createObjectNode().put("id", packageId.toString()));
+        deleteOperation.put("expectedElementVersion", 2);
+        undoPayload.putArray("operations").add(updateOperation).add(deleteOperation);
+        DiagramDocument undone = service.apply(diagramId,
+            new DiagramOperationRequest(UUID.randomUUID(), 1L, null, "BATCH", undoPayload), "u", "User");
+
+        assertEquals(2, undone.revision());
+        assertTrue(undone.packages().isEmpty());
+        verify(operations, times(2)).save(any());
+    }
+
+    @Test
     void repeatedOperationIdIsNotAppliedTwice() throws Exception {
         UUID operationId = UUID.randomUUID();
         when(operations.existsById(operationId)).thenReturn(false, true);

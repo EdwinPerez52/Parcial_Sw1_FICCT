@@ -4,7 +4,7 @@ import { useDiagramStore } from './store';
 
 const base = (): DiagramModel => ({
   id: crypto.randomUUID(), name: 'Prueba', revision: 0,
-  classes: [], enumerations: [], associations: [], generalizations: [],
+  classes: [], enumerations: [], associations: [], generalizations: [], packages: [],
 });
 
 describe('diagram store', () => {
@@ -85,6 +85,29 @@ describe('diagram store', () => {
     expect(useDiagramStore.getState().redoHistory).toHaveLength(1);
     useDiagramStore.getState().redo();
     expect(useDiagramStore.getState().diagram.classes[0].name).toBe('Producto');
+  });
+
+  it('applies an XMI preview as one batch and undoes the complete import', () => {
+    const classId = crypto.randomUUID(); const enumerationId = crypto.randomUUID(); const packageId = crypto.randomUUID();
+    useDiagramStore.getState().replaceFromImport({
+      ...base(), name: 'Importado',
+      classes: [{ id: classId, kind: 'class', name: 'Pedido', position: { x: 10, y: 20 }, version: 1,
+        attributes: [{ id: crypto.randomUUID(), name: 'estado', type: 'Estado', primaryKey: false, required: true, unique: false, version: 1 }] }],
+      enumerations: [{ id: enumerationId, kind: 'enumeration', name: 'Estado', position: { x: 300, y: 20 }, version: 1,
+        values: [{ id: crypto.randomUUID(), name: 'NUEVO', version: 1 }] }],
+      packages: [{ id: packageId, name: 'Ventas', memberIds: [classId, enumerationId], version: 1 }],
+    });
+
+    expect(useDiagramStore.getState().history).toHaveLength(1);
+    expect(useDiagramStore.getState().history[0].redo.type).toBe('BATCH');
+    expect(useDiagramStore.getState().diagram.classes[0].name).toBe('Pedido');
+    expect(useDiagramStore.getState().diagram.packages[0].memberIds).toHaveLength(2);
+
+    useDiagramStore.getState().undo();
+
+    expect(useDiagramStore.getState().diagram.classes).toHaveLength(0);
+    expect(useDiagramStore.getState().diagram.enumerations).toHaveLength(0);
+    expect(useDiagramStore.getState().diagram.packages).toHaveLength(0);
   });
 
   it('undoes only the local action after an unrelated remote change arrives', () => {

@@ -13,13 +13,21 @@ public record DiagramDocument(
     List<ClassElement> classes,
     List<Enumeration> enumerations,
     List<Association> associations,
-    List<Generalization> generalizations
+    List<Generalization> generalizations,
+    List<PackageElement> packages
 ) {
     public DiagramDocument {
         classes = classes == null ? new ArrayList<>() : new ArrayList<>(classes);
         enumerations = enumerations == null ? new ArrayList<>() : new ArrayList<>(enumerations);
         associations = associations == null ? new ArrayList<>() : new ArrayList<>(associations);
         generalizations = generalizations == null ? new ArrayList<>() : new ArrayList<>(generalizations);
+        packages = packages == null ? new ArrayList<>() : new ArrayList<>(packages);
+    }
+
+    public DiagramDocument(UUID id, String name, long revision, List<ClassElement> classes,
+                           List<Enumeration> enumerations, List<Association> associations,
+                           List<Generalization> generalizations) {
+        this(id, name, revision, classes, enumerations, associations, generalizations, List.of());
     }
 
     public DiagramDocument(UUID id, String name, long revision, List<ClassElement> classes,
@@ -79,4 +87,14 @@ public record DiagramDocument(
     }
 
     public record Generalization(UUID id, UUID parentId, UUID childId, long version) {}
+
+    /** UML package containment. memberIds can reference classes, enumerations or associations. */
+    public record PackageElement(
+        UUID id, String name, UUID parentId, List<UUID> memberIds, long version
+    ) {
+        public PackageElement {
+            memberIds = memberIds == null ? new ArrayList<>() : new ArrayList<>(memberIds);
+            if (version < 1) version = 1;
+        }
+    }
 }

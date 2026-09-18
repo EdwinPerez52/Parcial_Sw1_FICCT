@@ -1,4 +1,4 @@
-import { Association, Attribute, ClassElement, DiagramModel, DiagramOperation, EnumerationElement, Generalization } from './domain';
+import { Association, Attribute, ClassElement, DiagramModel, DiagramOperation, EnumerationElement, Generalization, PackageElement } from './domain';
 
 const clone = <T>(value: T): T => structuredClone(value);
 
@@ -18,9 +18,11 @@ function applyWithoutRevision(diagram: DiagramModel, operation: DiagramOperation
     case 'CLASS_MOVED': return updateClass(diagram, String(payload.id), value => ({ ...value, position: { x: Number(payload.x), y: Number(payload.y) }, version: value.version + 1 }));
     case 'CLASS_DELETED': {
       const id = String(payload.id);
+      const removedAssociations = new Set(diagram.associations.filter(value => value.sourceId === id || value.targetId === id).map(value => value.id));
       return { ...diagram, classes: diagram.classes.filter(value => value.id !== id),
         associations: diagram.associations.filter(value => value.sourceId !== id && value.targetId !== id),
-        generalizations: diagram.generalizations.filter(value => value.parentId !== id && value.childId !== id) };
+        generalizations: diagram.generalizations.filter(value => value.parentId !== id && value.childId !== id),
+        packages: removePackageMembers(diagram, new Set([id, ...removedAssociations])) };
     }
     case 'ATTRIBUTE_CREATED': {
       const classId = String(payload.classId); const attribute = clone(payload.attribute as Attribute);
@@ -48,7 +50,10 @@ function applyWithoutRevision(diagram: DiagramModel, operation: DiagramOperation
       const value = clone(payload) as unknown as Association;
       return { ...diagram, associations: diagram.associations.map(old => old.id === value.id ? { ...value, version: old.version + 1 } : old) };
     }
-    case 'ASSOCIATION_DELETED': return { ...diagram, associations: diagram.associations.filter(value => value.id !== String(payload.id)) };
+    case 'ASSOCIATION_DELETED': {
+      const id = String(payload.id);
+      return { ...diagram, associations: diagram.associations.filter(value => value.id !== id), packages: removePackageMembers(diagram, new Set([id])) };
+    }
     case 'ENUMERATION_CREATED': {
       const value = clone(payload) as unknown as EnumerationElement;
       return { ...diagram, enumerations: [...diagram.enumerations, { ...value, kind: 'enumeration', version: 1,
@@ -74,15 +79,31 @@ function applyWithoutRevision(diagram: DiagramModel, operation: DiagramOperation
       return { ...diagram, enumerations: diagram.enumerations.map(old => old.id === enumerationId
         ? { ...old, version: old.version + 1, values: old.values.filter(entry => entry.id !== String(payload.id)) } : old) };
     }
-    case 'ENUMERATION_DELETED': return { ...diagram, enumerations: diagram.enumerations.filter(value => value.id !== String(payload.id)) };
+    case 'ENUMERATION_DELETED': {
+      const id = String(payload.id);
+      return { ...diagram, enumerations: diagram.enumerations.filter(value => value.id !== id), packages: removePackageMembers(diagram, new Set([id])) };
+    }
     case 'GENERALIZATION_CREATED': return { ...diagram, generalizations: [...diagram.generalizations, { ...(clone(payload) as unknown as Generalization), version: 1 }] };
     case 'GENERALIZATION_DELETED': return { ...diagram, generalizations: diagram.generalizations.filter(value => value.id !== String(payload.id)) };
+    case 'PACKAGE_CREATED': return { ...diagram, packages: [...diagram.packages, { ...(clone(payload) as unknown as PackageElement), version: 1 }] };
+    case 'PACKAGE_UPDATED': {
+      const value = clone(payload) as unknown as PackageElement;
+      return { ...diagram, packages: diagram.packages.map(old => old.id === value.id ? { ...value, version: old.version + 1 } : old) };
+    }
+    case 'PACKAGE_DELETED': return { ...diagram, packages: diagram.packages.filter(value => value.id !== String(payload.id)) };
     case 'BATCH': return ((payload.operations as DiagramOperation[]) ?? []).reduce(applyWithoutRevision, diagram);
     case 'MODEL_RESTORED': {
       const model = clone(payload.model as DiagramModel);
       return { ...model, id: diagram.id, name: diagram.name, revision: diagram.revision };
     }
   }
+}
+
+function removePackageMembers(diagram: DiagramModel, removed: Set<string>) {
+  return diagram.packages.map(value => {
+    const memberIds = value.memberIds.filter(id => !removed.has(id));
+    return memberIds.length === value.memberIds.length ? value : { ...value, memberIds, version: value.version + 1 };
+  });
 }
 
 function updateClass(diagram: DiagramModel, id: string, update: (value: ClassElement) => ClassElement): DiagramModel {

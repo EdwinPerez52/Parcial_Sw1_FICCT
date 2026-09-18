@@ -83,6 +83,10 @@ El editor mantiene una outbox de operaciones en el navegador (nunca credenciales
 
 Los participantes, cursores y selecciones usan Redis y expiran si no llega heartbeat. Los comentarios, respuestas, actividad e hitos se conservan en PostgreSQL. Deshacer/rehacer crea operaciones compensatorias; restaurar un hito crea una revisión nueva y no elimina el historial. Consulta [docs/collaboration.md](./docs/collaboration.md).
 
+## XMI 2.1 y Enterprise Architect
+
+Desde el editor, un propietario o editor puede seleccionar un `.xmi` XMI 2.1 o un `.xml` de exportación nativa de paquete de Enterprise Architect, revisar clases, paquetes, enumeraciones, relaciones y advertencias antes de confirmar. La confirmación reemplaza el contenido del lienzo como un solo lote versionado y puede deshacerse. Todo miembro puede exportar el modelo actual desde **Exportar XMI**. El intercambio conserva semántica UML; los metadatos y el estilo visual propietarios de Enterprise Architect se omiten con una advertencia. Consulta [docs/uml-json-contract.md](./docs/uml-json-contract.md#intercambio-xmi-21).
+
 ## Flutter, Android y Samsung A56
 
 1. Instala Flutter estable y ejecuta `flutter doctor -v`.

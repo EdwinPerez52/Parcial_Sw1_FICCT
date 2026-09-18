@@ -152,7 +152,7 @@ Autoriza creación, lectura y resolución según la membresía. Difunde cambios 
 Criterio de aceptación: dos participantes pueden comentar y resolver conversaciones en tiempo real, y los comentarios permanecen tras reiniciar la aplicación.
 ```
 
-## 12. Importación y exportación XMI 2.1
+--## 12. Importación y exportación XMI 2.1
 
 ```text
 Objetivo: completar un intercambio XMI seguro y compatible con Enterprise Architect.

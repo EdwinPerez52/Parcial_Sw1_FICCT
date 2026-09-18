@@ -44,7 +44,7 @@ public class DiagramService {
             throw new IllegalArgumentException("El nombre del diagrama es obligatorio y admite hasta 180 caracteres");
         }
         UUID id = UUID.randomUUID();
-        DiagramDocument document = new DiagramDocument(id, name.trim(), 0, List.of(), List.of(), List.of(), List.of());
+        DiagramDocument document = new DiagramDocument(id, name.trim(), 0, List.of(), List.of(), List.of(), List.of(), List.of());
         diagrams.save(new DiagramEntity(id, document.name(), write(document), ownerSubject));
         access.addOwner(id, ownerSubject, ownerName);
         return document;
@@ -93,6 +93,7 @@ public class DiagramService {
         List<DiagramDocument.Enumeration> enumerations = new ArrayList<>(current.enumerations());
         List<DiagramDocument.Association> associations = new ArrayList<>(current.associations());
         List<DiagramDocument.Generalization> generalizations = new ArrayList<>(current.generalizations());
+        List<DiagramDocument.PackageElement> packages = new ArrayList<>(current.packages());
         JsonNode payload = request.payload();
 
         switch (request.type()) {
@@ -122,8 +123,14 @@ public class DiagramService {
                 int index = classIndex(classes, id);
                 assertVersion(classes.get(index).version(), requireExpected(request, id), serverRevision, id);
                 classes.remove(index);
+                Set<UUID> removedAssociationIds = associations.stream()
+                    .filter(link -> link.sourceId().equals(id) || link.targetId().equals(id))
+                    .map(DiagramDocument.Association::id).collect(java.util.stream.Collectors.toSet());
                 associations.removeIf(link -> link.sourceId().equals(id) || link.targetId().equals(id));
                 generalizations.removeIf(link -> link.parentId().equals(id) || link.childId().equals(id));
+                packages.replaceAll(value -> withoutPackageMember(value, id));
+                removedAssociationIds.forEach(associationId ->
+                    packages.replaceAll(value -> withoutPackageMember(value, associationId)));
             }
             case "ATTRIBUTE_CREATED" -> {
                 UUID classId = uuid(payload, "classId");
@@ -188,6 +195,7 @@ public class DiagramService {
                 int index = associationIndex(associations, id);
                 assertVersion(associations.get(index).version(), requireExpected(request, id), serverRevision, id);
                 associations.remove(index);
+                packages.replaceAll(value -> withoutPackageMember(value, id));
             }
             case "ENUMERATION_CREATED" -> {
                 DiagramDocument.Enumeration value = mapper.convertValue(payload, DiagramDocument.Enumeration.class);
@@ -243,6 +251,7 @@ public class DiagramService {
                     .anyMatch(attribute -> attribute.type().equals(name) || attribute.type().equals(id.toString()));
                 if (used) throw new IllegalArgumentException("No se puede eliminar una enumeración utilizada por atributos");
                 enumerations.remove(index);
+                packages.replaceAll(value -> withoutPackageMember(value, id));
             }
             case "GENERALIZATION_CREATED" -> {
                 DiagramDocument.Generalization value = mapper.convertValue(payload, DiagramDocument.Generalization.class);
@@ -253,6 +262,29 @@ public class DiagramService {
                 int index = generalizationIndex(generalizations, id);
                 assertVersion(generalizations.get(index).version(), requireExpected(request, id), serverRevision, id);
                 generalizations.remove(index);
+            }
+            case "PACKAGE_CREATED" -> {
+                DiagramDocument.PackageElement value = mapper.convertValue(payload, DiagramDocument.PackageElement.class);
+                packages.add(new DiagramDocument.PackageElement(requiredId(value.id()), value.name(), value.parentId(),
+                    value.memberIds(), 1));
+            }
+            case "PACKAGE_UPDATED" -> {
+                DiagramDocument.PackageElement value = mapper.convertValue(payload, DiagramDocument.PackageElement.class);
+                int index = packageIndex(packages, requiredId(value.id()));
+                DiagramDocument.PackageElement old = packages.get(index);
+                assertVersion(old.version(), requireExpected(request, old.id()), serverRevision, old.id());
+                packages.set(index, new DiagramDocument.PackageElement(old.id(), value.name(), value.parentId(),
+                    value.memberIds(), old.version() + 1));
+            }
+            case "PACKAGE_DELETED" -> {
+                UUID id = uuid(payload, "id");
+                int index = packageIndex(packages, id);
+                DiagramDocument.PackageElement value = packages.get(index);
+                assertVersion(value.version(), requireExpected(request, id), serverRevision, id);
+                if (!value.memberIds().isEmpty() || packages.stream().anyMatch(item -> id.equals(item.parentId()))) {
+                    throw new IllegalArgumentException("No se puede eliminar un paquete que todavÃ­a contiene elementos");
+                }
+                packages.remove(index);
             }
             case "BATCH" -> {
                 if (nested) throw new IllegalArgumentException("No se permiten lotes anidados");
@@ -265,7 +297,6 @@ public class DiagramService {
                     if (nestedRequest.operationId() == null) throw new IllegalArgumentException("Cada operación del lote requiere operationId");
                     if (!childOperationIds.add(nestedRequest.operationId())) throw new IllegalArgumentException("operationId duplicado dentro del lote");
                     result = applyOperation(result, nestedRequest, serverRevision, true);
-                    validateDocument(result);
                 }
                 return result;
             }
@@ -273,7 +304,7 @@ public class DiagramService {
             default -> throw new IllegalArgumentException("Tipo de operación no soportado: " + request.type());
         }
         return new DiagramDocument(current.id(), current.name(), current.revision(),
-            classes, enumerations, associations, generalizations);
+            classes, enumerations, associations, generalizations, packages);
     }
 
     private void validateDocument(DiagramDocument document) {
@@ -338,6 +369,30 @@ public class DiagramService {
             if (!inheritancePairs.add(link.parentId() + ":" + link.childId())) throw new IllegalArgumentException("Generalización duplicada");
         }
         assertNoInheritanceCycles(document.classes(), document.generalizations());
+
+        Set<UUID> packageIds = new HashSet<>();
+        for (DiagramDocument.PackageElement item : document.packages()) {
+            requireUniqueId(ids, item.id());
+            packageIds.add(item.id());
+            validateName(item.name(), "paquete");
+        }
+        Set<String> packageNames = new HashSet<>();
+        Set<UUID> packageMembers = new HashSet<>();
+        Set<UUID> containableIds = new HashSet<>();
+        document.classes().forEach(item -> containableIds.add(item.id()));
+        document.enumerations().forEach(item -> containableIds.add(item.id()));
+        document.associations().forEach(item -> containableIds.add(item.id()));
+        for (DiagramDocument.PackageElement item : document.packages()) {
+            if (item.parentId() != null && !packageIds.contains(item.parentId())) {
+                throw new IllegalArgumentException("Paquete padre inexistente: " + item.parentId());
+            }
+            requireUniqueName(packageNames, (item.parentId() == null ? "root" : item.parentId()) + ":" + item.name(), "paquete");
+            for (UUID memberId : item.memberIds()) {
+                if (!containableIds.contains(memberId)) throw new IllegalArgumentException("Elemento de paquete inexistente: " + memberId);
+                if (!packageMembers.add(memberId)) throw new IllegalArgumentException("Un elemento no puede pertenecer a mÃ¡s de un paquete: " + memberId);
+            }
+            assertPackageParentChain(item.id(), document.packages(), new HashSet<>());
+        }
     }
 
     private void assertNoInheritanceCycles(List<DiagramDocument.ClassElement> classes,
@@ -359,7 +414,7 @@ public class DiagramService {
 
     private DiagramDocument withRevision(DiagramDocument value, long revision) {
         return new DiagramDocument(value.id(), value.name(), revision, value.classes(), value.enumerations(),
-            value.associations(), value.generalizations());
+            value.associations(), value.generalizations(), value.packages());
     }
 
     private DiagramDocument.ClassElement copyClass(DiagramDocument.ClassElement owner,
@@ -422,6 +477,24 @@ public class DiagramService {
     private int generalizationIndex(List<DiagramDocument.Generalization> values, UUID id) {
         for (int i = 0; i < values.size(); i++) if (values.get(i).id().equals(id)) return i;
         throw new NotFoundException("Generalización no encontrada: " + id);
+    }
+
+    private int packageIndex(List<DiagramDocument.PackageElement> values, UUID id) {
+        for (int i = 0; i < values.size(); i++) if (values.get(i).id().equals(id)) return i;
+        throw new NotFoundException("Paquete no encontrado: " + id);
+    }
+
+    private DiagramDocument.PackageElement withoutPackageMember(DiagramDocument.PackageElement value, UUID memberId) {
+        if (!value.memberIds().contains(memberId)) return value;
+        return new DiagramDocument.PackageElement(value.id(), value.name(), value.parentId(),
+            value.memberIds().stream().filter(id -> !id.equals(memberId)).toList(), value.version() + 1);
+    }
+
+    private void assertPackageParentChain(UUID id, List<DiagramDocument.PackageElement> packages, Set<UUID> path) {
+        if (!path.add(id)) throw new IllegalArgumentException("La jerarquÃ­a de paquetes contiene un ciclo");
+        DiagramDocument.PackageElement value = packages.stream().filter(item -> item.id().equals(id)).findFirst().orElse(null);
+        if (value != null && value.parentId() != null) assertPackageParentChain(value.parentId(), packages, path);
+        path.remove(id);
     }
 
     private Long requireExpected(DiagramOperationRequest request, UUID id) {
