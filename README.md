@@ -29,7 +29,7 @@ Entorno completo, con frontend en <http://localhost:5173> y API en <http://local
 pnpm dev
 ```
 
-La salud del backend se consulta en <http://localhost:8080/actuator/health>. PostgreSQL escucha en `5432`, Redis en `6379` y Mailpit muestra los correos locales en <http://localhost:8025>.
+La salud del backend se consulta en <http://localhost:8080/actuator/health>. PostgreSQL de Docker escucha en `5433` para no interferir con instalaciones locales en `5432`; Redis escucha en `6379` y Mailpit muestra los correos locales en <http://localhost:8025>.
 
 Para desarrollar cada proceso por separado:
 
@@ -38,6 +38,8 @@ pnpm dev:infra
 pnpm dev:api
 pnpm dev:web
 ```
+
+`dev:api` carga las variables locales de `.env` sin imprimirlas y activa el perfil Spring `dev` mediante `SPRING_PROFILES_ACTIVE`, evitando problemas de interpretación de argumentos `-D` en PowerShell.
 
 Detén los contenedores sin borrar el volumen de PostgreSQL con `pnpm stop`.
 
@@ -62,7 +64,7 @@ cd backend_parcial
 
 | Variable | Uso | Predeterminado local |
 | --- | --- | --- |
-| `DATABASE_URL` | JDBC de PostgreSQL | `jdbc:postgresql://localhost:5432/modeler` |
+| `DATABASE_URL` | JDBC de PostgreSQL | `jdbc:postgresql://localhost:5433/modeler` |
 | `DATABASE_USER` / `DATABASE_PASSWORD` | Credenciales PostgreSQL | `modeler` / `modeler` |
 | `REDIS_URL` | Redis | `redis://localhost:6379` |
 | `WEBSOCKET_ALLOWED_ORIGINS` | Orígenes permitidos separados por coma | `http://localhost:5173` |
@@ -73,9 +75,20 @@ cd backend_parcial
 | `MAIL_HOST` / `MAIL_PORT` | SMTP de desarrollo | `localhost` / `1025` |
 | `SES_SMTP_HOST`, `SES_SMTP_USERNAME`, `SES_SMTP_PASSWORD` | Amazon SES SMTP (`prod`) | obligatorias en producción |
 | `AI_API_KEY` | Proveedor de IA | sin valor |
+| `AI_PROVIDER` | Adaptador de texto (`openai`) | `openai` |
 | `AI_BASE_URL`, `AI_TEXT_MODEL`, `AI_VISION_MODEL` | Adaptador de IA | consulta `.env.example` |
 
 El perfil `dev` usa autenticación real, PostgreSQL y Mailpit, con cookie HTTP local. `prod` activa cookie `Secure`, Google OIDC y Amazon SES SMTP. Configura `APP_BOOTSTRAP_ADMIN_EMAIL`, abre la invitación en Mailpit y completa el registro inicial; el registro público sin invitación está bloqueado.
+
+## Asistente de operaciones
+
+El asistente de texto usa el mismo contrato `DiagramOperation` que el editor manual. El backend interpreta primero con un parser local determinista; solo las instrucciones no reconocidas usan el adaptador configurado por `AI_PROVIDER`. Toda propuesta se valida en seco contra la revisión real del diagrama. Las eliminaciones y los lotes de más de cinco operaciones muestran una previsualización y requieren confirmación.
+
+Las propuestas expiran y no guardan el texto original: se conserva únicamente su hash, la operación validada, autor y proveedor. La aplicación se realiza por el servicio transaccional normal y queda registrada con origen `ASSISTANT`. Sin `AI_API_KEY`, los comandos locales continúan funcionando y los complejos responden 503 sin alterar el modelo.
+
+Para validar el adaptador contra el proveedor real, guarda `AI_API_KEY` únicamente en tu `.env` local (nunca en `.env.example` ni en Git), levanta de nuevo el entorno con `pnpm dev` y prueba una instrucción compleja que no reconozca el parser local. Comprueba primero la previsualización y confirma después la propuesta. Docker Compose transmite `AI_PROVIDER`, `AI_BASE_URL`, `AI_API_KEY`, `AI_TEXT_MODEL` y `AI_VISION_MODEL` al backend. Una suscripción de ChatGPT no incluye automáticamente crédito de API: la cuenta de API debe tener facturación o crédito disponible.
+
+El parser local admite variantes como `crear clase Factura`, `crea la clase Factura`, `créame una clase Factura` y `añade una clase Factura`. Para un modelo de dominio puede usarse, por ejemplo, `Genera un diagrama breve de base de datos para una farmacia con sus tablas, atributos, relaciones principales y cardinalidades`. El proveedor devuelve operaciones estrictas; el adaptador completa de forma incremental un modelo de 4 a 8 clases y al menos 3 asociaciones cuando una respuesta no cabe en una sola llamada, normaliza alias de tipos habituales y entrega el `BATCH` a la validación normal del backend. El lote se muestra como previsualización y no modifica el diagrama hasta ser confirmado.
 
 ## Colaboración y trabajo sin conexión
 
@@ -87,11 +100,11 @@ Los participantes, cursores y selecciones usan Redis y expiran si no llega heart
 
 Desde el editor, un propietario o editor puede seleccionar un `.xmi` XMI 2.1 o un `.xml` de exportación nativa de paquete de Enterprise Architect, revisar clases, paquetes, enumeraciones, relaciones y advertencias antes de confirmar. La confirmación reemplaza el contenido del lienzo como un solo lote versionado y puede deshacerse. Todo miembro puede exportar el modelo actual desde **Exportar XMI**. El intercambio conserva semántica UML; los metadatos y el estilo visual propietarios de Enterprise Architect se omiten con una advertencia. Consulta [docs/uml-json-contract.md](./docs/uml-json-contract.md#intercambio-xmi-21).
 
-## Flutter, Android y Samsung A56
+## Flutter, Android
 
 1. Instala Flutter estable y ejecuta `flutter doctor -v`.
 2. Instala Android Studio o Android SDK Command-line Tools y agrega `platform-tools` a `PATH`.
-3. En el Samsung A56, habilita opciones de desarrollador pulsando siete veces «Número de compilación».
+3. En el movil, habilita opciones de desarrollador pulsando siete veces «Número de compilación».
 4. Activa «Depuración USB», conecta un cable de datos, desbloquea el teléfono y acepta la huella RSA.
 5. Ejecuta `pnpm mobile:check`. `adb devices -l` debe mostrar el estado `device`, no `unauthorized`.
 

@@ -35,6 +35,7 @@ export interface DiagramState {
   reapplyConflict: (operationId: string) => void;
   sendPresence: (kind: 'CURSOR' | 'SELECTION' | 'ACTIVITY' | 'HEARTBEAT', data?: { cursor?: Position; selection?: string[]; activity?: string }) => void;
   acceptAuthoritative: (diagram: DiagramModel) => void;
+  acceptAssistant: (operation: DiagramOperation, diagram: DiagramModel, before?: DiagramModel) => void;
   replaceFromImport: (diagram: DiagramModel) => void;
 }
 
@@ -353,6 +354,14 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
   },
   sendPresence: (kind, data = {}) => channel?.presence({ kind, ...data }),
   acceptAuthoritative: value => { const remote = normalizeDiagram(value); const state = get(); set({ serverDiagram: remote, confirmedRevision: remote.revision, diagram: replay(remote, state.pendingOperations), eventSequence: state.eventSequence + 1 }); },
+  acceptAssistant: (operationValue, value, beforeValue) => {
+    const remote = normalizeDiagram(value); const state = get(); const before = beforeValue ?? state.diagram;
+    let inverse: DiagramOperation | undefined;
+    try { inverse = transition(applyDiagramOperation(before, operationValue, remote.revision), before); } catch { inverse = undefined; }
+    set({ serverDiagram: remote, confirmedRevision: remote.revision, diagram: remote,
+      history: inverse ? [...state.history, { undo: inverse, redo: operationValue }] : state.history,
+      redoHistory: [], eventSequence: state.eventSequence + 1, lastError: undefined });
+  },
   replaceFromImport: value => {
     const before = get().diagram;
     const target = normalizeDiagram({ ...value, id: before.id, name: before.name, revision: before.revision });

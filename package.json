@@ -7,7 +7,7 @@
     "dev": "docker compose up --build",
     "dev:infra": "docker compose up -d postgres redis",
     "dev:web": "corepack pnpm --filter @modeler/web dev",
-    "dev:api": "powershell -NoProfile -Command \"Set-Location backend_parcial; .\\mvnw.cmd spring-boot:run -Dspring-boot.run.profiles=dev\"",
+    "dev:api": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/run-api.ps1",
     "build": "corepack pnpm --filter @modeler/web build",
     "test": "corepack pnpm --filter @modeler/web test",
     "test:all": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/test-all.ps1",

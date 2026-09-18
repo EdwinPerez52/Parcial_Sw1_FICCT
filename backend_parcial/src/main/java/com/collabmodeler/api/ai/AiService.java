@@ -15,10 +15,6 @@ public class AiService {
     public AiService(AiProperties properties, ObjectMapper mapper, RestClient.Builder builder) {
         this.properties = properties; this.mapper = mapper; this.rest = builder.build();
     }
-    public JsonNode interpret(String command, JsonNode diagram) {
-        String instruction = "Convierte únicamente el comando puntual en operaciones UML. No diseñes el sistema completo. Responde JSON con operations, warnings y requiresConfirmation. Tipos permitidos: CLASS_CREATED, CLASS_RENAMED, CLASS_MOVED, CLASS_DELETED, ATTRIBUTE_CREATED, ASSOCIATION_CREATED. Eliminaciones o más de cinco operaciones requieren confirmación.";
-        return chat(properties.getTextModel(), List.of(Map.of("role", "system", "content", instruction), Map.of("role", "user", "content", "Diagrama: " + diagram + "\nComando: " + command)));
-    }
     public JsonNode analyzeImage(byte[] image, String contentType) {
         String prompt = "Extrae solo el diagrama visible, sin inventar. Responde JSON {classes:[{name,attributes:[{name,type,primaryKey,required,unique}]}],associations:[{source,target,sourceCardinality,targetCardinality,name}],warnings:[]}. Tipos válidos: String,Text,Integer,Long,Decimal,Boolean,Date,DateTime,UUID,Binary.";
         String dataUrl = "data:" + contentType + ";base64," + Base64.getEncoder().encodeToString(image);
@@ -34,4 +30,3 @@ public class AiService {
         try { return mapper.readTree(content); } catch (Exception exception) { throw new IllegalArgumentException("El proveedor de IA devolvió JSON inválido", exception); }
     }
 }
-

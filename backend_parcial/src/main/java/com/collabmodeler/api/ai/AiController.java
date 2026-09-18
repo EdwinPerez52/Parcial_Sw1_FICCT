@@ -14,8 +14,6 @@ import java.util.Set;
 public class AiController {
     private static final Set<String> IMAGES = Set.of("image/jpeg", "image/png", "image/webp");
     private final AiService ai; public AiController(AiService ai) { this.ai = ai; }
-    public record CommandRequest(@NotBlank String command, @NotNull JsonNode diagram) {}
-    @PostMapping("/command") JsonNode command(@Valid @RequestBody CommandRequest request) { return ai.interpret(request.command(), request.diagram()); }
     @PostMapping(value = "/image-preview", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     JsonNode image(@RequestPart("file") MultipartFile file) throws IOException {
         if (file.isEmpty() || file.getSize() > 10_000_000) throw new IllegalArgumentException("La imagen debe pesar entre 1 byte y 10 MB");
@@ -23,4 +21,3 @@ public class AiController {
         return ai.analyzeImage(file.getBytes(), file.getContentType());
     }
 }
-

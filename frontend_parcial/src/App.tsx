@@ -2,12 +2,11 @@ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 're
 import { Background, Connection, Controls, Edge, MarkerType, MiniMap, Node, ReactFlow } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { Bot, Braces, Camera, Cloud, Download, FileUp, History, ListTree, LogOut, MessageSquare, Mic, Plus, Redo2, Share2, Undo2, Users, XCircle } from 'lucide-react';
-import { parseAssistantCommand } from './assistant';
 import { ClassNode } from './ClassNode';
 import { EnumerationNode } from './EnumerationNode';
 import { PropertyPanel } from './PropertyPanel';
 import { useDiagramStore } from './store';
-import { ImageProposal, XmiImportPreview, analyzeDiagramImage, diagramApi, downloadGeneratedBackend, downloadXmi, previewXmi } from './api';
+import { AssistantProposal, ImageProposal, XmiImportPreview, analyzeDiagramImage, assistantApi, diagramApi, downloadGeneratedBackend, downloadXmi, previewXmi } from './api';
 import { dictate } from './speech';
 import { CommentsPanel, MembersPanel, VersionsPanel } from './CollaborationPanel';
 
@@ -21,10 +20,12 @@ export default function App({ projectId, userName, role, onBack, onLogout }: { p
     addClass, addEnumeration, updateEnumeration, moveClass, moveSelected, addAssociation, addAttribute,
     deleteClass, deleteSelected, undo, redo, participants, conflicts, pendingOperations, eventSequence,
     retryConflict, discardConflict, reapplyConflict, sendPresence, acceptAuthoritative,
-    replaceFromImport,
+    replaceFromImport, acceptAssistant,
   } = store;
   const [command, setCommand] = useState('');
   const [assistantMessage, setAssistantMessage] = useState('Prueba: “crea una clase Producto”');
+  const [assistantProposal, setAssistantProposal] = useState<AssistantProposal>();
+  const [assistantBusy, setAssistantBusy] = useState(false);
   const [panel, setPanel] = useState<'properties' | 'assistant' | 'comments' | 'history' | 'members'>('properties');
   const [imageProposal, setImageProposal] = useState<ImageProposal>();
   const [analyzingImage, setAnalyzingImage] = useState(false);
@@ -180,25 +181,31 @@ export default function App({ projectId, userName, role, onBack, onLogout }: { p
     selectElements([...selectedNodes, ...selectedEdges].map(item => item.id));
   }, [selectElements]);
 
-  const executeCommand = (event: FormEvent) => {
-    event.preventDefault();
-    const intent = parseAssistantCommand(command);
+  const applyAssistantProposal = async (proposal: AssistantProposal, confirmed: boolean) => {
+    if (!diagramId) return;
+    const before = store.diagram;
+    setAssistantBusy(true);
     try {
-      if (intent.type === 'createClass') {
-        addClass(intent.name); setAssistantMessage(`Clase ${intent.name} creada.`);
-      } else if (intent.type === 'addAttribute') {
-        const target = diagram.classes.find(item => item.name.toLowerCase() === intent.className.toLowerCase());
-        if (target) {
-          addAttribute(target.id, { name: intent.attributeName, type: intent.attributeType, primaryKey: false, required: false, unique: false });
-          setAssistantMessage(`Atributo ${intent.attributeName} agregado a ${target.name}.`);
-        } else setAssistantMessage(`No existe la clase ${intent.className}.`);
-      } else if (intent.type === 'deleteClass') {
-        const target = diagram.classes.find(item => item.name.toLowerCase() === intent.name.toLowerCase());
-        if (target && window.confirm(`¿Eliminar la clase ${target.name}?`)) {
-          deleteClass(target.id); setAssistantMessage(`Clase ${target.name} eliminada.`);
-        }
-      } else setAssistantMessage(intent.message);
+      const result = await assistantApi.apply(diagramId, proposal.proposalId, confirmed);
+      acceptAssistant(result.operation, result.diagram, before); setAssistantProposal(undefined);
+      setAssistantMessage(`Cambio aplicado mediante ${result.provider}. Puedes deshacerlo.`);
+    } catch (cause) { setAssistantMessage(cause instanceof Error ? cause.message : 'No se pudo aplicar la propuesta.'); }
+    finally { setAssistantBusy(false); }
+  };
+
+  const executeCommand = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!diagramId || !command.trim()) return;
+    if (pendingOperations.some(value => value.status !== 'acknowledged')) {
+      setAssistantMessage('Espera a que terminen de sincronizarse los cambios pendientes.'); return;
+    }
+    setAssistantBusy(true);
+    try {
+      const proposal = await assistantApi.interpret(diagramId, command.trim());
+      if (proposal.requiresConfirmation) { setAssistantProposal(proposal); setAssistantMessage('Revisa la previsualización antes de confirmar.'); }
+      else await applyAssistantProposal(proposal, false);
     } catch (cause) { setAssistantMessage(cause instanceof Error ? cause.message : 'Operación inválida.'); }
+    finally { setAssistantBusy(false); }
     setCommand('');
   };
 
@@ -296,15 +303,28 @@ export default function App({ projectId, userName, role, onBack, onLogout }: { p
             </div>
           </div>
           <form className="command-box" onSubmit={executeCommand}>
-            <input value={command} onChange={event => setCommand(event.target.value)} placeholder="Escribe una instrucción…" />
-            <button type="button" title="Dictar" onClick={() => dictate(setCommand, setAssistantMessage)}><Mic size={18} /></button>
-            <button type="submit">Enviar</button>
+            <input value={command} disabled={assistantBusy} onChange={event => setCommand(event.target.value)} placeholder="Escribe una instrucción…" />
+            <button type="button" disabled={assistantBusy} title="Dictar" onClick={() => dictate(setCommand, setAssistantMessage)}><Mic size={18} /></button>
+            <button type="submit" disabled={assistantBusy}>{assistantBusy ? 'Validando…' : 'Enviar'}</button>
           </form>
         </>}
         {lastError && <div className="validation-message" role="alert">{lastError}</div>}
       </aside>
 
       {conflicts[0] && <div className="conflict-banner" role="alertdialog" aria-label="Conflicto de edición"><strong>Tu cambio entró en conflicto</strong><p>{conflicts[0].message}</p><div className="conflict-compare"><span><b>Local</b> revisión {conflicts[0].localDiagram.revision}</span><span><b>Servidor</b> revisión {conflicts[0].serverDiagram.revision}</span></div><footer><button onClick={() => retryConflict(conflicts[0].operationId)}>Reintentar</button><button onClick={() => discardConflict(conflicts[0].operationId)}>Descartar</button><button className="primary" onClick={() => reapplyConflict(conflicts[0].operationId)}>Reaplicar sobre servidor</button></footer></div>}
+
+      {assistantProposal && <div className="modal-backdrop">
+        <section className="proposal-modal" role="alertdialog" aria-modal="true" aria-labelledby="assistant-preview-title">
+          <h2 id="assistant-preview-title">Confirmar cambio del asistente</h2>
+          <p>Esta operación elimina elementos o modifica el diagrama de forma masiva. Todavía no se aplicó ningún cambio.</p>
+          <div className="snapshot-summary">
+            <span>{assistantProposal.summary}</span><span>Proveedor: {assistantProposal.provider}</span>
+            <span>{assistantProposal.previewDiagram.classes.length} clases</span><span>{assistantProposal.previewDiagram.enumerations.length} enumeraciones</span>
+            <span>{assistantProposal.previewDiagram.associations.length} relaciones</span><span>{assistantProposal.previewDiagram.generalizations.length} herencias</span>
+          </div>
+          <footer><button className="secondary" disabled={assistantBusy} onClick={() => setAssistantProposal(undefined)}>Cancelar</button><button className="primary" disabled={assistantBusy} onClick={() => void applyAssistantProposal(assistantProposal, true)}>Confirmar y aplicar</button></footer>
+        </section>
+      </div>}
 
       {imageProposal && <div className="modal-backdrop">
         <section className="proposal-modal">

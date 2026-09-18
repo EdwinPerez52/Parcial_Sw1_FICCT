@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { authApi, diagramApi, previewXmi } from './api';
+import { assistantApi, authApi, diagramApi, previewXmi } from './api';
 
 describe('cliente autenticado', () => {
   beforeEach(() => vi.restoreAllMocks());
@@ -26,5 +26,17 @@ describe('cliente autenticado', () => {
     expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/diagrams/diagram-id/xmi/preview');
     expect(fetchMock.mock.calls[0][1]?.body).toBeInstanceOf(FormData);
     expect(new Headers(fetchMock.mock.calls[0][1]?.headers).has('Content-Type')).toBe(false);
+  });
+  it('interpreta y confirma propuestas sin enviar el diagrama desde el cliente', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify({ proposalId: 'p1', provider: 'local-deterministic', requiresConfirmation: true, operation: {}, previewDiagram: {}, summary: 'CLASS_DELETED' }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ operation: {}, diagram: {}, provider: 'local-deterministic' }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+
+    await assistantApi.interpret('diagram-id', 'elimina la clase Persona');
+    await assistantApi.apply('diagram-id', 'p1', true);
+
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/diagrams/diagram-id/assistant/proposals');
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({ instruction: 'elimina la clase Persona' });
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toEqual({ confirmed: true });
   });
 });

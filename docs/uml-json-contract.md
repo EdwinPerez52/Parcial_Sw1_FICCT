@@ -73,6 +73,13 @@ Toda escritura contiene `operationId`, `baseRevision`, `type`, `payload` y, al m
 
 Una revisión base antigua se acepta cuando la versión del elemento coincide, lo que permite converger cambios independientes. Una versión incompatible responde 409 con `code`, `currentRevision`, `elementId` y `actualElementVersion`. Repetir un `operationId` devuelve el estado actual sin volver a aplicar la escritura.
 
+### Propuestas del asistente
+
+- `POST /api/v1/diagrams/{diagramId}/assistant/proposals` con `{ "instruction": "..." }` devuelve `proposalId`, `provider`, `requiresConfirmation`, `operation`, `previewDiagram` y `summary`.
+- `POST /api/v1/diagrams/{diagramId}/assistant/proposals/{proposalId}/apply` con `{ "confirmed": true|false }` aplica exactamente la operación prevalidada.
+- Una propuesta pertenece al autor y al diagrama, expira, y solo puede aplicarse una vez. Las operaciones destructivas y los lotes con más de cinco operaciones exigen `confirmed: true`.
+- El historial de `diagram_operations` registra `source` (`MANUAL` o `ASSISTANT`) y `ai_provider`. El texto natural y las claves del proveedor no se guardan.
+
 ## Intercambio XMI 2.1
 
 La importación también reconoce el XML nativo de paquete de Enterprise Architect (`Package` con tablas `t_object`, `t_attribute`, `t_connector` y `t_diagramobjects`). Este formato se convierte al mismo modelo semántico y genera una advertencia porque omite metadatos y estilo visual propietarios.

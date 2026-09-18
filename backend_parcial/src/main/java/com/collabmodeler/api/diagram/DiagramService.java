@@ -63,7 +63,17 @@ public class DiagramService {
 
     @Transactional
     public DiagramDocument apply(UUID id, DiagramOperationRequest request, String authorSubject, String authorName) {
+        return apply(id, request, authorSubject, authorName, "MANUAL", null);
+    }
+
+    @Transactional
+    public DiagramDocument apply(UUID id, DiagramOperationRequest request, String authorSubject, String authorName,
+                                 String source, String aiProvider) {
         validateRequest(request);
+        if (!Set.of("MANUAL", "ASSISTANT").contains(source)) throw new IllegalArgumentException("Origen de operación inválido");
+        if ("ASSISTANT".equals(source) && (aiProvider == null || aiProvider.isBlank() || aiProvider.length() > 80)) {
+            throw new IllegalArgumentException("El proveedor del asistente es obligatorio");
+        }
         DiagramEntity entity = diagrams.findForUpdate(id).orElseThrow(() -> new NotFoundException("Diagrama no encontrado"));
         if (operations.existsById(request.operationId())) return read(entity.getModelJson());
         if (request.baseRevision() > entity.getRevision()) {
@@ -78,8 +88,17 @@ public class DiagramService {
         updated = withRevision(updated, nextRevision);
         entity.updateModel(nextRevision, write(updated));
         operations.save(new DiagramOperationEntity(request.operationId(), id, request.baseRevision(), nextRevision,
-            request.type(), request.payload().toString(), authorSubject, authorName));
+            request.type(), request.payload().toString(), authorSubject, authorName, source, aiProvider));
         return updated;
+    }
+
+    @Transactional(readOnly = true)
+    public DiagramDocument preview(UUID id, DiagramOperationRequest request) {
+        validateRequest(request);
+        DiagramEntity entity = diagrams.findById(id).orElseThrow(() -> new NotFoundException("Diagrama no encontrado"));
+        DiagramDocument updated = applyOperation(read(entity.getModelJson()), request, entity.getRevision(), false);
+        validateDocument(updated);
+        return withRevision(updated, entity.getRevision() + 1);
     }
 
     private DiagramDocument applyOperation(DiagramDocument current, DiagramOperationRequest request,

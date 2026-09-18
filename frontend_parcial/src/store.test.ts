@@ -87,6 +87,17 @@ describe('diagram store', () => {
     expect(useDiagramStore.getState().diagram.classes[0].name).toBe('Producto');
   });
 
+  it('records an applied assistant operation in undo history', () => {
+    const before = useDiagramStore.getState().diagram;
+    const item = { id: crypto.randomUUID(), kind: 'class' as const, name: 'Producto', attributes: [], position: { x: 10, y: 20 }, version: 1 };
+    const operation = { operationId: crypto.randomUUID(), baseRevision: 0, type: 'CLASS_CREATED' as const, payload: item };
+    useDiagramStore.getState().acceptAssistant(operation, { ...before, revision: 1, classes: [item] });
+
+    expect(useDiagramStore.getState().diagram.classes[0].name).toBe('Producto');
+    expect(useDiagramStore.getState().history.at(-1)?.redo).toEqual(operation);
+    expect(useDiagramStore.getState().history.at(-1)?.undo.type).toBe('BATCH');
+  });
+
   it('applies an XMI preview as one batch and undoes the complete import', () => {
     const classId = crypto.randomUUID(); const enumerationId = crypto.randomUUID(); const packageId = crypto.randomUUID();
     useDiagramStore.getState().replaceFromImport({

@@ -50,7 +50,10 @@ app:
     presence-ttl-seconds: ${PRESENCE_TTL_SECONDS:45}
     allowed-origins: ${WEBSOCKET_ALLOWED_ORIGINS:http://localhost:5173}
   ai:
+    provider: ${AI_PROVIDER:openai}
     base-url: ${AI_BASE_URL:https://api.openai.com/v1}
     api-key: ${AI_API_KEY:}
     text-model: ${AI_TEXT_MODEL:gpt-4.1-mini}
     vision-model: ${AI_VISION_MODEL:gpt-4.1-mini}
+    proposal-minutes: ${AI_PROPOSAL_MINUTES:15}
+    max-instruction-length: ${AI_MAX_INSTRUCTION_LENGTH:2000}

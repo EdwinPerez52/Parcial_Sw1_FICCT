@@ -65,6 +65,26 @@ export const diagramApi = {
   xmiExportUrl: (id: string) => `/api/v1/diagrams/${id}/xmi`,
 };
 
+export interface AssistantProposal {
+  proposalId: string;
+  provider: string;
+  requiresConfirmation: boolean;
+  operation: DiagramOperation;
+  previewDiagram: DiagramModel;
+  summary: string;
+}
+
+export interface AppliedAssistantProposal { operation: DiagramOperation; diagram: DiagramModel; provider: string }
+
+export const assistantApi = {
+  interpret: (diagramId: string, instruction: string) => raw<AssistantProposal>(`/api/v1/diagrams/${diagramId}/assistant/proposals`, {
+    method: 'POST', body: JSON.stringify({ instruction }),
+  }),
+  apply: (diagramId: string, proposalId: string, confirmed: boolean) => raw<AppliedAssistantProposal>(`/api/v1/diagrams/${diagramId}/assistant/proposals/${proposalId}/apply`, {
+    method: 'POST', body: JSON.stringify({ confirmed }),
+  }),
+};
+
 export interface XmiWarning { code: string; message: string; externalId?: string; elementType?: string }
 export interface XmiImportPreview { diagram: DiagramModel; warnings: XmiWarning[] }
 

@@ -59,4 +59,22 @@ class DiagramServiceTest {
         assertThrows(ConflictException.class, () -> service.apply(diagramId,
             new DiagramOperationRequest(UUID.randomUUID(), 3L, null, "CLASS_CREATED", mapper.createObjectNode()), "user", "User"));
     }
+
+    @Test
+    void recordsAssistantAuthorAndProviderWithoutSecrets() throws Exception {
+        ObjectMapper mapper = new ObjectMapper(); UUID diagramId = UUID.randomUUID();
+        var document = new DiagramDocument(diagramId, "Ventas", 0, null, null);
+        var entity = new DiagramEntity(diagramId, "Ventas", mapper.writeValueAsString(document), "owner");
+        when(diagrams.findForUpdate(diagramId)).thenReturn(Optional.of(entity)); when(operations.existsById(any())).thenReturn(false);
+        var service = new DiagramService(diagrams, operations, mapper, access);
+        ObjectNode payload = mapper.createObjectNode(); payload.put("id", UUID.randomUUID().toString()).put("name", "Producto").put("version", 1);
+        payload.putObject("position").put("x", 10).put("y", 20); payload.putArray("attributes");
+
+        service.apply(diagramId, new DiagramOperationRequest(UUID.randomUUID(), 0L, null, "CLASS_CREATED", payload),
+            "account:1", "Ana", "ASSISTANT", "openai:model");
+
+        var captor = org.mockito.ArgumentCaptor.forClass(DiagramOperationEntity.class); verify(operations).save(captor.capture());
+        assertEquals("account:1", captor.getValue().getAuthorSubject()); assertEquals("ASSISTANT", captor.getValue().getSource());
+        assertEquals("openai:model", captor.getValue().getAiProvider());
+    }
 }

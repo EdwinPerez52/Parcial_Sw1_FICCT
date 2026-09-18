@@ -21,6 +21,18 @@
 
 Los `BATCH` se validan completos y se confirman en una única transacción. Consulta [uml-json-contract.md](./uml-json-contract.md) y [collaboration.md](./collaboration.md).
 
+## Asistente de texto
+
+1. `POST /api/v1/diagrams/{id}/assistant/proposals` exige rol editor y recibe solo la instrucción.
+2. `LocalCommandParser` resuelve comandos simples de creación, modificación, movimiento, relaciones, enumeraciones, herencia y eliminación.
+3. Si el parser no reconoce la instrucción, el adaptador `TextCommandProvider` configurado recibe el contexto mínimo del diagrama y debe devolver una única `DiagramOperation` o `BATCH` bajo un esquema JSON estricto.
+   Para diseños de dominio breves, el adaptador puede solicitar operaciones atómicas adicionales hasta reunir entre 4 y 8 clases y al menos 3 asociaciones válidas; remapea todos los identificadores nuevos a UUID generados localmente y conserva sus referencias cruzadas.
+4. `DiagramService.preview` aplica la operación sobre una copia y ejecuta todas las validaciones de dominio, sin persistir ni publicar eventos.
+5. La propuesta temporal conserva operación, autor, proveedor y SHA-256 de la instrucción; no conserva el texto natural ni credenciales.
+6. Las eliminaciones y lotes de más de cinco operaciones requieren confirmación. Al aplicar, se bloquean propuesta y diagrama, se evita el doble uso y se llama al mismo `DiagramService.apply` del editor manual.
+
+El proveedor nunca recibe acceso a PostgreSQL ni produce SQL/código ejecutable. Los alias SQL comunes de tipos y cardinalidades se convierten al vocabulario cerrado del modelo antes de la previsualización. Una salida inválida termina antes de crear la propuesta y, por tanto, no cambia revisión, instantánea ni historial.
+
 ## Persistencia
 
 Flyway es la única fuente del esquema y Hibernate usa `ddl-auto=validate`. Las claves foráneas del agregado eliminan en cascada, y existen índices por revisión, sujeto, rol y fecha. Los enlaces compartidos se guardan únicamente como SHA-256; el token en claro solo se entrega al rotarlo.
