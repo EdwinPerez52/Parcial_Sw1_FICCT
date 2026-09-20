@@ -69,16 +69,15 @@ cd backend_parcial
 | `REDIS_URL` | Redis | `redis://localhost:6379` |
 | `WEBSOCKET_ALLOWED_ORIGINS` | Orígenes permitidos separados por coma | `http://localhost:5173` |
 | `PRESENCE_TTL_SECONDS` | Expiración de presencia sin heartbeat | `45` |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | OAuth fuera de `dev` | sin valor |
 | `APP_BOOTSTRAP_ADMIN_EMAIL` | Primera invitación de administrador | sin valor |
 | `APP_PUBLIC_URL` | Base de enlaces enviados por correo | `http://localhost:5173` |
 | `MAIL_HOST` / `MAIL_PORT` | SMTP de desarrollo | `localhost` / `1025` |
 | `SES_SMTP_HOST`, `SES_SMTP_USERNAME`, `SES_SMTP_PASSWORD` | Amazon SES SMTP (`prod`) | obligatorias en producción |
 | `AI_API_KEY` | Proveedor de IA | sin valor |
 | `AI_PROVIDER` | Adaptador de texto (`openai`) | `openai` |
-| `AI_BASE_URL`, `AI_TEXT_MODEL`, `AI_VISION_MODEL` | Adaptador de IA | consulta `.env.example` |
+| `AI_BASE_URL`, `AI_TEXT_MODEL`, `AI_VISION_MODEL`, `AI_AUDIO_MODEL` | Adaptadores de IA | consulta `.env.example` |
 
-El perfil `dev` usa autenticación real, PostgreSQL y Mailpit, con cookie HTTP local. `prod` activa cookie `Secure`, Google OIDC y Amazon SES SMTP. Configura `APP_BOOTSTRAP_ADMIN_EMAIL`, abre la invitación en Mailpit y completa el registro inicial; el registro público sin invitación está bloqueado.
+El perfil `dev` usa autenticación real, PostgreSQL y Mailpit, con cookie HTTP local. `prod` activa cookie `Secure` y Amazon SES SMTP. Configura `APP_BOOTSTRAP_ADMIN_EMAIL`, abre la invitación en Mailpit y completa el registro inicial; el registro público sin invitación está bloqueado.
 
 ## Asistente de operaciones
 
@@ -86,9 +85,13 @@ El asistente de texto usa el mismo contrato `DiagramOperation` que el editor man
 
 Las propuestas expiran y no guardan el texto original: se conserva únicamente su hash, la operación validada, autor y proveedor. La aplicación se realiza por el servicio transaccional normal y queda registrada con origen `ASSISTANT`. Sin `AI_API_KEY`, los comandos locales continúan funcionando y los complejos responden 503 sin alterar el modelo.
 
-Para validar el adaptador contra el proveedor real, guarda `AI_API_KEY` únicamente en tu `.env` local (nunca en `.env.example` ni en Git), levanta de nuevo el entorno con `pnpm dev` y prueba una instrucción compleja que no reconozca el parser local. Comprueba primero la previsualización y confirma después la propuesta. Docker Compose transmite `AI_PROVIDER`, `AI_BASE_URL`, `AI_API_KEY`, `AI_TEXT_MODEL` y `AI_VISION_MODEL` al backend. Una suscripción de ChatGPT no incluye automáticamente crédito de API: la cuenta de API debe tener facturación o crédito disponible.
+Para validar el adaptador contra el proveedor real, guarda `AI_API_KEY` únicamente en tu `.env` local (nunca en `.env.example` ni en Git), levanta de nuevo el entorno con `pnpm dev` y prueba una instrucción compleja que no reconozca el parser local. Comprueba primero la previsualización y confirma después la propuesta. Docker Compose transmite `AI_PROVIDER`, `AI_BASE_URL`, `AI_API_KEY`, `AI_TEXT_MODEL`, `AI_VISION_MODEL` y `AI_AUDIO_MODEL` al backend. Una suscripción de ChatGPT no incluye automáticamente crédito de API: la cuenta de API debe tener facturación o crédito disponible.
 
 El parser local admite variantes como `crear clase Factura`, `crea la clase Factura`, `créame una clase Factura` y `añade una clase Factura`. Para un modelo de dominio puede usarse, por ejemplo, `Genera un diagrama breve de base de datos para una farmacia con sus tablas, atributos, relaciones principales y cardinalidades`. El proveedor devuelve operaciones estrictas; el adaptador completa de forma incremental un modelo de 4 a 8 clases y al menos 3 asociaciones cuando una respuesta no cabe en una sola llamada, normaliza alias de tipos habituales y entrega el `BATCH` a la validación normal del backend. El lote se muestra como previsualización y no modifica el diagrama hasta ser confirmado.
+
+En el editor, abre **Asistente** y pulsa el micrófono. Habla y pulsa **Transcribir grabación**; se muestran los estados de permiso, grabación, transcripción y error con reintento. La web graba hasta 15 segundos y envía el audio a `/api/v1/diagrams/{id}/assistant/transcriptions`, que requiere editor y `AI_API_KEY`; si la transcripción del servidor no está disponible, intenta el reconocimiento del navegador. El texto resultante pasa exactamente por el mismo endpoint de propuestas y validación que una instrucción escrita. El micrófono requiere permiso del navegador.
+
+Para importar una fotografía, un propietario o editor pulsa **Fotografía** en la barra izquierda o **Analizar fotografía** en el panel Asistente y elige PNG, JPEG o WebP de hasta 10 MB. El servidor verifica el formato real y limita ancho, alto y píxeles antes de invocar el adaptador de visión. La respuesta debe contener clases, atributos, relaciones, advertencias y confianza entre 0 y 1. La vista previa permite corregir nombres, tipos y relaciones. Cancelar no modifica el modelo; confirmar lo incorpora como un único `BATCH` y una acción de deshacer revierte toda la importación. El análisis de imagen requiere `AI_API_KEY`.
 
 ## Colaboración y trabajo sin conexión
 
@@ -99,6 +102,17 @@ Los participantes, cursores y selecciones usan Redis y expiran si no llega heart
 ## XMI 2.1 y Enterprise Architect
 
 Desde el editor, un propietario o editor puede seleccionar un `.xmi` XMI 2.1 o un `.xml` de exportación nativa de paquete de Enterprise Architect, revisar clases, paquetes, enumeraciones, relaciones y advertencias antes de confirmar. La confirmación reemplaza el contenido del lienzo como un solo lote versionado y puede deshacerse. Todo miembro puede exportar el modelo actual desde **Exportar XMI**. El intercambio conserva semántica UML; los metadatos y el estilo visual propietarios de Enterprise Architect se omiten con una advertencia. Consulta [docs/uml-json-contract.md](./docs/uml-json-contract.md#intercambio-xmi-21).
+
+## Generador de Backend Spring Boot y Especificación Móvil
+
+Desde el panel de **Versiones / Hitos** o desde la barra superior de acciones:
+- **Descargar backend (ZIP)**: genera un proyecto Spring Boot 3 completo con Java 21, entidades JPA, herencia `JOINED`, relaciones 1:1, 1:N y N:M con lado propietario, DTOs de entrada y salida con Bean Validation, repositorios, servicios, controladores CRUD completos con actualización, manejo de errores uniforme (`ErrorResponse`), migración inicial Flyway, autenticación completa con JWT y roles `ADMIN`/`USER` en tablas aisladas (`_app_auth_*`), `openapi.yaml`, `Dockerfile` multi-stage, `docker-compose.yml`, trazabilidad `@ModelElement` y `model-traceability.json`, y pruebas con Testcontainers.
+- **Descargar spec móvil (JSON)**: emite `modeler-mobile-spec.json` firmado criptográficamente con HMAC-SHA256, vinculado al hash del contrato OpenAPI y la revisión del modelo, para alimentar al generador móvil Flutter local.
+- **Validación previa estricta**: el backend valida el modelo antes de generar e informa el UUID específico del elemento afectado si existe alguna clave primaria faltante, tipo inválido, cardinalidad incorrecta o ciclo de herencia.
+
+Endpoints REST disponibles bajo `/api/v1`:
+- `GET /api/v1/diagrams/{id}/generation?versionId={versionId}&groupId=com.example&artifactId=mi-app`
+- `GET /api/v1/diagrams/{id}/mobile-spec?versionId={versionId}`
 
 ## Flutter, Android
 

@@ -204,6 +204,18 @@ resource "aws_cloudwatch_log_group" "api" {
   retention_in_days = 30
   tags              = local.tags
 }
+resource "aws_ecr_repository" "api" {
+  name = "${local.name}-api"
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+  tags = local.tags
+}
+resource "aws_cloudwatch_log_group" "api" {
+  name              = "/ecs/${local.name}/api"
+  retention_in_days = 30
+  tags              = local.tags
+}
 resource "aws_ecs_cluster" "main" {
   name = local.name
   tags = local.tags
@@ -216,10 +228,7 @@ resource "aws_secretsmanager_secret" "runtime" {
 resource "aws_secretsmanager_secret_version" "runtime" {
   secret_id = aws_secretsmanager_secret.runtime.id
   secret_string = jsonencode({
-    GOOGLE_CLIENT_ID     = var.google_client_id
-    GOOGLE_CLIENT_SECRET = var.google_client_secret
-    AI_API_KEY           = var.ai_api_key
-
+    AI_API_KEY = var.ai_api_key
   })
 }
 
@@ -314,12 +323,6 @@ resource "aws_ecs_task_definition" "api" {
       }
     ]
     secrets = [
-      {
-        name = "GOOGLE_CLIENT_ID", valueFrom = "${aws_secretsmanager_secret.runtime.arn}:GOOGLE_CLIENT_ID::"
-      },
-      {
-        name = "GOOGLE_CLIENT_SECRET", valueFrom = "${aws_secretsmanager_secret.runtime.arn}:GOOGLE_CLIENT_SECRET::"
-      },
       {
         name = "AI_API_KEY", valueFrom = "${aws_secretsmanager_secret.runtime.arn}:AI_API_KEY::"
       }

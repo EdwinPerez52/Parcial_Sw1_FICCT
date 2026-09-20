@@ -1,28 +1,85 @@
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { FormEvent, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Background, Connection, Controls, Edge, MarkerType, MiniMap, Node, ReactFlow } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Bot, Braces, Camera, Cloud, Download, FileUp, History, ListTree, LogOut, MessageSquare, Mic, Plus, Redo2, Share2, Undo2, Users, XCircle } from 'lucide-react';
+import { Bot, Camera, CheckSquare, Cloud, Download, FileUp, History, ListTree, LogOut, MessageSquare, Mic, Plus, Redo2, Share2, Trash2, Undo2, Users, XCircle } from 'lucide-react';
 import { ClassNode } from './ClassNode';
-import { EnumerationNode } from './EnumerationNode';
 import { PropertyPanel } from './PropertyPanel';
 import { useDiagramStore } from './store';
-import { AssistantProposal, ImageProposal, XmiImportPreview, analyzeDiagramImage, assistantApi, diagramApi, downloadGeneratedBackend, downloadXmi, previewXmi } from './api';
-import { dictate } from './speech';
+import { AssistantProposal, ImageProposal, XmiImportPreview, analyzeDiagramImage, assistantApi, diagramApi, downloadGeneratedBackend, downloadMobileSpec, downloadXmi, previewXmi } from './api';
+import { SpeechSession, SpeechStatus } from './speech';
+import { buildImageImport, optimizeImageForAnalysis } from './imageImport';
+import { cardinalities, scalarTypes } from './domain';
 import { CommentsPanel, MembersPanel, VersionsPanel } from './CollaborationPanel';
 
-const nodeTypes = { classNode: ClassNode, enumerationNode: EnumerationNode };
+const nodeTypes = { classNode: ClassNode };
+
+const ParticipantsAvatars = memo(function ParticipantsAvatars() {
+  const participants = useDiagramStore(s => s.participants);
+  return (
+    <div className="avatars" title={participants.map(value => value.displayName).join(', ')}>
+      {participants.slice(0, 4).map(value => (
+        <span key={value.sessionId}>
+          {value.displayName.split(/\s+/).map(part => part[0]).join('').slice(0, 2).toUpperCase()}
+        </span>
+      ))}
+      <b><Users size={14} /> {participants.length} en línea</b>
+    </div>
+  );
+});
+
+const RemoteCursorsOverlay = memo(function RemoteCursorsOverlay({ userName }: { userName: string }) {
+  const participants = useDiagramStore(s => s.participants);
+  const remote = useMemo(
+    () => participants.filter(value => value.cursor && value.displayName !== userName),
+    [participants, userName]
+  );
+  return (
+    <div className="remote-cursors" aria-hidden>
+      {remote.map(value => (
+        <div
+          className="remote-cursor"
+          key={value.sessionId}
+          style={{ left: `${value.cursor!.x * 100}%`, top: `${value.cursor!.y * 100}%` }}
+        >
+          <span /> <b>{value.displayName}</b>
+        </div>
+      ))}
+    </div>
+  );
+});
 
 export default function App({ projectId, userName, role, onBack, onLogout }: { projectId: string; userName: string; role: string; onBack: () => void; onLogout: () => void }) {
   const canEdit = role === 'OWNER' || role === 'EDITOR';
-  const store = useDiagramStore();
-  const {
-    diagram, diagramId, syncState, lastError, initialize, selectedIds, selectElements,
-    addClass, addEnumeration, updateEnumeration, moveClass, moveSelected, addAssociation, addAttribute,
-    deleteClass, deleteSelected, undo, redo, participants, conflicts, pendingOperations, eventSequence,
-    retryConflict, discardConflict, reapplyConflict, sendPresence, acceptAuthoritative,
-    replaceFromImport, acceptAssistant,
-  } = store;
+
+  const diagram = useDiagramStore(s => s.diagram);
+  const diagramId = useDiagramStore(s => s.diagramId);
+  const syncState = useDiagramStore(s => s.syncState);
+  const lastError = useDiagramStore(s => s.lastError);
+  const selectedIds = useDiagramStore(s => s.selectedIds);
+  const conflicts = useDiagramStore(s => s.conflicts);
+  const pendingOperations = useDiagramStore(s => s.pendingOperations);
+  const eventSequence = useDiagramStore(s => s.eventSequence);
+
+  const initialize = useDiagramStore(s => s.initialize);
+  const selectElements = useDiagramStore(s => s.selectElements);
+  const addClass = useDiagramStore(s => s.addClass);
+  const moveClass = useDiagramStore(s => s.moveClass);
+  const moveSelected = useDiagramStore(s => s.moveSelected);
+  const addAssociation = useDiagramStore(s => s.addAssociation);
+  const deleteSelected = useDiagramStore(s => s.deleteSelected);
+  const undo = useDiagramStore(s => s.undo);
+  const redo = useDiagramStore(s => s.redo);
+  const retryConflict = useDiagramStore(s => s.retryConflict);
+  const discardConflict = useDiagramStore(s => s.discardConflict);
+  const reapplyConflict = useDiagramStore(s => s.reapplyConflict);
+  const sendPresence = useDiagramStore(s => s.sendPresence);
+  const acceptAuthoritative = useDiagramStore(s => s.acceptAuthoritative);
+  const replaceFromImport = useDiagramStore(s => s.replaceFromImport);
+  const acceptAssistant = useDiagramStore(s => s.acceptAssistant);
+
   const [command, setCommand] = useState('');
+  const [speechStatus, setSpeechStatus] = useState<SpeechStatus>({ phase: 'idle' });
+  const speechSession = useRef<SpeechSession | undefined>(undefined);
   const [assistantMessage, setAssistantMessage] = useState('Prueba: “crea una clase Producto”');
   const [assistantProposal, setAssistantProposal] = useState<AssistantProposal>();
   const [assistantBusy, setAssistantBusy] = useState(false);
@@ -40,6 +97,8 @@ export default function App({ projectId, userName, role, onBack, onLogout }: { p
     void initialize(projectId).then(callback => { dispose = callback; });
     return () => dispose();
   }, [initialize, projectId]);
+
+  useEffect(() => () => speechSession.current?.stop(), []);
 
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
@@ -86,42 +145,37 @@ export default function App({ projectId, userName, role, onBack, onLogout }: { p
 
   const generate = async () => {
     if (!diagramId) return;
-    try { await downloadGeneratedBackend(diagramId); setAssistantMessage('Backend generado desde la revisión actual.'); }
-    catch (cause) { setAssistantMessage(cause instanceof Error ? cause.message : 'No se pudo generar.'); }
+    try { await downloadGeneratedBackend(diagramId); setAssistantMessage('Backend generado desde la versión inmutable.'); }
+    catch (cause) { setAssistantMessage(cause instanceof Error ? cause.message : 'No se pudo generar el backend.'); }
+  };
+
+  const generateSpec = async () => {
+    if (!diagramId) return;
+    try { await downloadMobileSpec(diagramId); setAssistantMessage('modeler-mobile-spec.json firmado descargado.'); }
+    catch (cause) { setAssistantMessage(cause instanceof Error ? cause.message : 'No se pudo descargar la especificación móvil.'); }
   };
 
   const inspectImage = async (file?: File) => {
-    if (!file) return;
+    if (!file || !diagramId) return;
+    if (file.size > 10_000_000) { setAssistantMessage('La fotografía supera el límite de 10 MB.'); return; }
     setAnalyzingImage(true);
-    try { setImageProposal(await analyzeDiagramImage(file)); setAssistantMessage('Revisa la propuesta antes de incorporarla.'); }
+    setAssistantMessage('Optimizando y analizando fotografía con IA…');
+    try {
+      const prepared = await optimizeImageForAnalysis(file);
+      setImageProposal(await analyzeDiagramImage(diagramId, prepared));
+      setAssistantMessage('Corrige la propuesta antes de incorporarla.');
+    }
     catch (cause) { setAssistantMessage(cause instanceof Error ? cause.message : 'No se pudo analizar la fotografía.'); }
-    finally { setAnalyzingImage(false); }
+    finally { setAnalyzingImage(false); if (imageInput.current) imageInput.current.value = ''; }
   };
 
   const acceptImageProposal = () => {
     if (!imageProposal) return;
-    const imported = new Map<string, string>();
     try {
-      imageProposal.classes.forEach(candidate => {
-        const created = addClass(candidate.name); imported.set(candidate.name.toLowerCase(), created.id);
-        candidate.attributes.forEach(attribute => addAttribute(created.id, {
-          ...attribute,
-          primaryKey: attribute.primaryKey ?? false,
-          required: attribute.required ?? false,
-          unique: attribute.unique ?? false,
-        }));
-      });
-      imageProposal.associations.forEach(link => {
-        const sourceId = imported.get(link.source.toLowerCase());
-        const targetId = imported.get(link.target.toLowerCase());
-        if (sourceId && targetId) addAssociation({
-          sourceId, targetId, sourceCardinality: link.sourceCardinality,
-          targetCardinality: link.targetCardinality, name: link.name,
-          sourceRole: '', targetRole: '', owningSide: 'SOURCE',
-        });
-      });
+      if (pendingOperations.some(value => value.status !== 'acknowledged')) throw new Error('Espera a que terminen de sincronizarse los cambios pendientes.');
+      replaceFromImport(buildImageImport(diagram, imageProposal));
       setImageProposal(undefined);
-      setAssistantMessage('La propuesta fue incorporada; ya puedes corregirla.');
+      setAssistantMessage('Fotografía incorporada en un único lote. Puedes deshacerla con Ctrl+Z.');
     } catch (cause) { setAssistantMessage(cause instanceof Error ? cause.message : 'La propuesta contiene datos inválidos.'); }
   };
 
@@ -151,31 +205,29 @@ export default function App({ projectId, userName, role, onBack, onLogout }: { p
     catch (cause) { setAssistantMessage(cause instanceof Error ? cause.message : 'No se pudo exportar XMI.'); }
   };
 
+  const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+
   const nodes = useMemo<Node[]>(() => [
     ...diagram.classes.map(item => ({
       id: item.id, type: 'classNode', position: item.position,
-      data: item as unknown as Record<string, unknown>, selected: selectedIds.includes(item.id),
+      data: item as unknown as Record<string, unknown>, selected: selectedSet.has(item.id),
     })),
-    ...diagram.enumerations.map(item => ({
-      id: item.id, type: 'enumerationNode', position: item.position,
-      data: item as unknown as Record<string, unknown>, selected: selectedIds.includes(item.id),
-    })),
-  ], [diagram.classes, diagram.enumerations, selectedIds]);
+  ], [diagram.classes, selectedSet]);
 
   const edges = useMemo<Edge[]>(() => [
     ...diagram.associations.map(item => ({
       id: item.id, source: item.sourceId, target: item.targetId,
       label: `${item.sourceRole ? item.sourceRole + ' ' : ''}${item.sourceCardinality} — ${item.targetCardinality}${item.targetRole ? ' ' + item.targetRole : ''}`,
-      markerEnd: { type: MarkerType.ArrowClosed }, selected: selectedIds.includes(item.id),
+      markerEnd: { type: MarkerType.ArrowClosed }, selected: selectedSet.has(item.id),
       data: { kind: 'association', name: item.name },
     })),
     ...diagram.generalizations.map(item => ({
       id: item.id, source: item.childId, target: item.parentId, type: 'straight',
       label: 'hereda', markerEnd: { type: MarkerType.ArrowClosed, color: '#475569' },
-      style: { stroke: '#475569', strokeWidth: 2 }, selected: selectedIds.includes(item.id),
+      style: { stroke: '#475569', strokeWidth: 2 }, selected: selectedSet.has(item.id),
       data: { kind: 'generalization' },
     })),
-  ], [diagram.associations, diagram.generalizations, selectedIds]);
+  ], [diagram.associations, diagram.generalizations, selectedSet]);
 
   const handleSelectionChange = useCallback(({ nodes: selectedNodes, edges: selectedEdges }: { nodes: Node[]; edges: Edge[] }) => {
     selectElements([...selectedNodes, ...selectedEdges].map(item => item.id));
@@ -183,7 +235,7 @@ export default function App({ projectId, userName, role, onBack, onLogout }: { p
 
   const applyAssistantProposal = async (proposal: AssistantProposal, confirmed: boolean) => {
     if (!diagramId) return;
-    const before = store.diagram;
+    const before = diagram;
     setAssistantBusy(true);
     try {
       const result = await assistantApi.apply(diagramId, proposal.proposalId, confirmed);
@@ -193,20 +245,32 @@ export default function App({ projectId, userName, role, onBack, onLogout }: { p
     finally { setAssistantBusy(false); }
   };
 
-  const executeCommand = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!diagramId || !command.trim()) return;
+  const submitInstruction = async (instruction: string) => {
+    if (!diagramId || !instruction.trim()) return;
     if (pendingOperations.some(value => value.status !== 'acknowledged')) {
       setAssistantMessage('Espera a que terminen de sincronizarse los cambios pendientes.'); return;
     }
     setAssistantBusy(true);
     try {
-      const proposal = await assistantApi.interpret(diagramId, command.trim());
+      const proposal = await assistantApi.interpret(diagramId, instruction.trim());
       if (proposal.requiresConfirmation) { setAssistantProposal(proposal); setAssistantMessage('Revisa la previsualización antes de confirmar.'); }
       else await applyAssistantProposal(proposal, false);
     } catch (cause) { setAssistantMessage(cause instanceof Error ? cause.message : 'Operación inválida.'); }
     finally { setAssistantBusy(false); }
     setCommand('');
+  };
+
+  const executeCommand = (event: FormEvent) => { event.preventDefault(); void submitInstruction(command); };
+
+  const startSpeech = () => {
+    if (speechStatus.phase === 'recording') { speechSession.current?.finish(); return; }
+    speechSession.current?.stop();
+    const hasBrowserSpeech = typeof window !== 'undefined' && ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window);
+    speechSession.current = new SpeechSession(setSpeechStatus, value => {
+      setCommand(value);
+      void submitInstruction(value).finally(() => setSpeechStatus({ phase: 'idle' }));
+    }, audio => diagramId ? assistantApi.transcribe(diagramId, audio) : Promise.reject(new Error('El diagrama no está disponible.')), hasBrowserSpeech);
+    void speechSession.current.start();
   };
 
   const connect = useCallback((connection: Connection) => {
@@ -222,14 +286,21 @@ export default function App({ projectId, userName, role, onBack, onLogout }: { p
   }, [addAssociation, diagram.classes]);
 
   const handleNodeDragStop = useCallback((_: unknown, node: Node) => {
-    const original = diagram.classes.find(item => item.id === node.id);
-    const originalEnumeration = diagram.enumerations.find(item => item.id === node.id);
-    const previousPosition = original?.position ?? originalEnumeration?.position;
+    const currentDiagram = useDiagramStore.getState().diagram;
+    const currentSelectedIds = useDiagramStore.getState().selectedIds;
+    const original = currentDiagram.classes.find(item => item.id === node.id);
+    const previousPosition = original?.position;
     if (!previousPosition) return;
-    if (selectedIds.length > 1) moveSelected({ x: node.position.x - previousPosition.x, y: node.position.y - previousPosition.y });
+    if (previousPosition.x === node.position.x && previousPosition.y === node.position.y) return;
+
+    // Edges can be selected along with a node. Only other selected nodes should
+    // turn this into a group move, otherwise dragging one table would move every
+    // selected table just because an edge is selected too.
+    const selectedNodeCount = currentDiagram.classes
+      .filter(item => currentSelectedIds.includes(item.id)).length;
+    if (selectedNodeCount > 1) moveSelected({ x: node.position.x - previousPosition.x, y: node.position.y - previousPosition.y });
     else if (original) moveClass(node.id, node.position.x, node.position.y);
-    else if (originalEnumeration) updateEnumeration({ ...originalEnumeration, position: node.position });
-  }, [diagram.classes, diagram.enumerations, moveClass, moveSelected, selectedIds.length, updateEnumeration]);
+  }, [moveClass, moveSelected]);
 
   const handlePaneClick = useCallback(() => selectElements([]), [selectElements]);
 
@@ -239,7 +310,7 @@ export default function App({ projectId, userName, role, onBack, onLogout }: { p
         <button className="brand brand-button" onClick={onBack} aria-label="Volver a proyectos"><span>CM</span><div><strong>Collab Modeler</strong><small>{diagram.name}</small></div></button>
         <div className={`sync ${syncState}`} title={lastError}><Cloud size={15} /> {syncState === 'online' ? 'Guardado' : syncState === 'syncing' ? 'Sincronizando' : 'Modo local'} · revisión {diagram.revision}</div>
         <div className="actions">
-          <div className="avatars" title={participants.map(value => value.displayName).join(', ')}>{participants.slice(0, 4).map(value => <span key={value.sessionId}>{value.displayName.split(/\s+/).map(part => part[0]).join('').slice(0, 2).toUpperCase()}</span>)}<b><Users size={14} /> {participants.length} en línea</b></div>
+          <ParticipantsAvatars />
           {role === 'OWNER' && <button className="secondary" onClick={share} disabled={!diagramId}><Share2 size={16} /> Crear/rotar enlace</button>}
           {role === 'OWNER' && <button className="secondary" onClick={revokeShare} disabled={!diagramId}><XCircle size={16} /> Revocar</button>}
           <button className="secondary" onClick={() => void exportXmi()}
@@ -248,14 +319,25 @@ export default function App({ projectId, userName, role, onBack, onLogout }: { p
             <Download size={16} /> Exportar XMI
           </button>
           <button className="primary" onClick={generate} disabled={!diagramId}>Generar backend</button>
+          <button className="secondary" onClick={generateSpec} disabled={!diagramId} title="Descargar modeler-mobile-spec.json firmado para Flutter"><Download size={16} /> Spec móvil</button>
           <button className="icon-button" onClick={onLogout} title="Cerrar sesión"><LogOut size={18} /></button>
         </div>
       </header>
 
       {canEdit && <aside className="toolbar">
         <button title="Nueva clase" onClick={() => { try { addClass(); } catch (cause) { setAssistantMessage(String(cause)); } }}><Plus /></button>
-        <button title="Nueva enumeración" onClick={() => { try { addEnumeration(); } catch (cause) { setAssistantMessage(String(cause)); } }}><Braces /></button>
-        <button title="Importar fotografía" onClick={() => imageInput.current?.click()} disabled={analyzingImage}><Camera /></button>
+        <div className="separator" />
+        <button title="Seleccionar todas las clases (Ctrl+A)" aria-label="Seleccionar todas las clases" onClick={() =>
+          selectElements(diagram.classes.map(item => item.id))
+        } disabled={!diagram.classes.length}><CheckSquare /></button>
+        <button title="Eliminar selección (Supr)" aria-label="Eliminar selección" onClick={() => {
+          if (!selectedIds.length) return;
+          if (window.confirm(`¿Eliminar ${selectedIds.length} elemento(s) seleccionado(s)?`)) {
+            try { deleteSelected(); } catch (cause) { setAssistantMessage(cause instanceof Error ? cause.message : 'No se pudo eliminar.'); }
+          }
+        }} disabled={!selectedIds.length}><Trash2 /></button>
+        <div className="separator" />
+        <button className="toolbar-image-action" title="Analizar fotografía" aria-label="Analizar fotografía" onClick={() => imageInput.current?.click()} disabled={analyzingImage}><Camera /><span>Fotografía</span></button>
         <input ref={imageInput} type="file" accept="image/png,image/jpeg,image/webp" hidden onChange={event => void inspectImage(event.target.files?.[0])} />
         <button title="Importar XMI 2.1" onClick={() => xmiInput.current?.click()} disabled={analyzingXmi}><FileUp /></button>
         <input ref={xmiInput} type="file" accept=".xmi,.xml,application/xml,text/xml" hidden onChange={event => void inspectXmi(event.target.files?.[0])} />
@@ -265,9 +347,12 @@ export default function App({ projectId, userName, role, onBack, onLogout }: { p
       </aside>}
 
       <section className="canvas" onMouseMove={event => {
-        const now = Date.now(); if (now - lastCursorSent.current < 80) return; lastCursorSent.current = now;
+        const now = Date.now(); if (now - lastCursorSent.current < 100) return; lastCursorSent.current = now;
         const rect = event.currentTarget.getBoundingClientRect();
-        sendPresence('CURSOR', { cursor: { x: (event.clientX - rect.left) / rect.width, y: (event.clientY - rect.top) / rect.height }, selection: selectedIds });
+        sendPresence('CURSOR', {
+          cursor: { x: (event.clientX - rect.left) / rect.width, y: (event.clientY - rect.top) / rect.height },
+          selection: useDiagramStore.getState().selectedIds,
+        });
       }}>
         <ReactFlow
           nodes={nodes} edges={edges} nodeTypes={nodeTypes} fitView selectionOnDrag
@@ -279,10 +364,10 @@ export default function App({ projectId, userName, role, onBack, onLogout }: { p
           onPaneClick={handlePaneClick}
         >
           <Background gap={20} color="#d7dce5" />
-          <MiniMap nodeColor={node => node.type === 'enumerationNode' ? '#0891b2' : '#4f46e5'} pannable zoomable />
+          <MiniMap nodeColor={() => '#4f46e5'} pannable zoomable />
           <Controls />
         </ReactFlow>
-        <div className="remote-cursors" aria-hidden>{participants.filter(value => value.cursor && value.displayName !== userName).map(value => <div className="remote-cursor" key={value.sessionId} style={{ left: `${value.cursor!.x * 100}%`, top: `${value.cursor!.y * 100}%` }}><span /> <b>{value.displayName}</b></div>)}</div>
+        <RemoteCursorsOverlay userName={userName} />
       </section>
 
       <aside className="right-panel">
@@ -301,12 +386,14 @@ export default function App({ projectId, userName, role, onBack, onLogout }: { p
               <button onClick={() => setCommand('crea una clase Producto')}>Crear clase Producto</button>
               <button onClick={() => setCommand('agrega atributo precio tipo decimal a Producto')}>Agregar precio a Producto</button>
             </div>
+            <button className="assistant-image-action" type="button" onClick={() => imageInput.current?.click()} disabled={analyzingImage}><Camera size={17} /> {analyzingImage ? 'Analizando fotografía…' : 'Analizar fotografía'}</button>
           </div>
           <form className="command-box" onSubmit={executeCommand}>
             <input value={command} disabled={assistantBusy} onChange={event => setCommand(event.target.value)} placeholder="Escribe una instrucción…" />
-            <button type="button" disabled={assistantBusy} title="Dictar" onClick={() => dictate(setCommand, setAssistantMessage)}><Mic size={18} /></button>
+            <button type="button" disabled={assistantBusy || ['permission', 'transcribing'].includes(speechStatus.phase)} aria-label={speechStatus.phase === 'recording' ? 'Transcribir grabación' : 'Grabar voz'} title={speechStatus.phase === 'recording' ? 'Transcribir grabación' : 'Grabar voz'} onClick={startSpeech}><Mic size={18} /> {speechStatus.phase === 'recording' ? 'Transcribir' : 'Voz'}</button>
             <button type="submit" disabled={assistantBusy}>{assistantBusy ? 'Validando…' : 'Enviar'}</button>
           </form>
+          {speechStatus.phase !== 'idle' && <div className="validation-message" role="status">{speechStatus.message} {speechStatus.phase === 'error' && <button onClick={startSpeech}>Reintentar voz</button>}</div>}
         </>}
         {lastError && <div className="validation-message" role="alert">{lastError}</div>}
       </aside>
@@ -319,7 +406,7 @@ export default function App({ projectId, userName, role, onBack, onLogout }: { p
           <p>Esta operación elimina elementos o modifica el diagrama de forma masiva. Todavía no se aplicó ningún cambio.</p>
           <div className="snapshot-summary">
             <span>{assistantProposal.summary}</span><span>Proveedor: {assistantProposal.provider}</span>
-            <span>{assistantProposal.previewDiagram.classes.length} clases</span><span>{assistantProposal.previewDiagram.enumerations.length} enumeraciones</span>
+            <span>{assistantProposal.previewDiagram.classes.length} clases</span>
             <span>{assistantProposal.previewDiagram.associations.length} relaciones</span><span>{assistantProposal.previewDiagram.generalizations.length} herencias</span>
           </div>
           <footer><button className="secondary" disabled={assistantBusy} onClick={() => setAssistantProposal(undefined)}>Cancelar</button><button className="primary" disabled={assistantBusy} onClick={() => void applyAssistantProposal(assistantProposal, true)}>Confirmar y aplicar</button></footer>
@@ -327,14 +414,36 @@ export default function App({ projectId, userName, role, onBack, onLogout }: { p
       </div>}
 
       {imageProposal && <div className="modal-backdrop">
-        <section className="proposal-modal">
-          <h2>Propuesta detectada</h2>
+        <section className="proposal-modal" role="dialog" aria-modal="true" aria-labelledby="image-preview-title">
+          <h2 id="image-preview-title">Propuesta detectada</h2>
           <p>La fotografía todavía no modificó el diagrama.</p>
+          <p>Confianza del análisis: {Math.round(imageProposal.confidence * 100)} %</p>
           <div className="proposal-grid">
-            {imageProposal.classes.map(item => <article key={item.name}><strong>{item.name}</strong><span>{item.attributes.map(attribute => `${attribute.name}: ${attribute.type}`).join(', ') || 'Sin atributos'}</span></article>)}
+            {imageProposal.classes.map((item, classIndex) => <article key={classIndex}>
+              <label>Clase <input aria-label={`Nombre de clase ${classIndex + 1}`} value={item.name} onChange={event => setImageProposal(current => current && ({ ...current, classes: current.classes.map((candidate, index) => index === classIndex ? { ...candidate, name: event.target.value } : candidate), associations: current.associations.map(link => ({ ...link, source: link.source === item.name ? event.target.value : link.source, target: link.target === item.name ? event.target.value : link.target })) }))} /></label>
+              <button type="button" className="secondary" onClick={() => setImageProposal(current => current && ({ ...current, classes: current.classes.filter((_, index) => index !== classIndex), associations: current.associations.filter(link => link.source !== item.name && link.target !== item.name) }))}>Quitar clase</button>
+              {item.attributes.map((attribute, attributeIndex) => <div key={attributeIndex} className="proposal-edit-row">
+                <input aria-label={`Atributo ${attributeIndex + 1} de ${item.name}`} value={attribute.name} onChange={event => setImageProposal(current => current && ({ ...current, classes: current.classes.map((candidate, index) => index === classIndex ? { ...candidate, attributes: candidate.attributes.map((value, i) => i === attributeIndex ? { ...value, name: event.target.value } : value) } : candidate) }))} />
+                <select aria-label={`Tipo de ${attribute.name}`} value={attribute.type} onChange={event => setImageProposal(current => current && ({ ...current, classes: current.classes.map((candidate, index) => index === classIndex ? { ...candidate, attributes: candidate.attributes.map((value, i) => i === attributeIndex ? { ...value, type: event.target.value } : value) } : candidate) }))}>{scalarTypes.map(type => <option key={type}>{type}</option>)}</select>
+                <label><input type="checkbox" checked={attribute.primaryKey ?? false} onChange={event => setImageProposal(current => current && ({ ...current, classes: current.classes.map((candidate, index) => index === classIndex ? { ...candidate, attributes: candidate.attributes.map((value, i) => i === attributeIndex ? { ...value, primaryKey: event.target.checked } : value) } : candidate) }))} /> PK</label>
+                <button type="button" className="secondary" onClick={() => setImageProposal(current => current && ({ ...current, classes: current.classes.map((candidate, index) => index === classIndex ? { ...candidate, attributes: candidate.attributes.filter((_, i) => i !== attributeIndex) } : candidate) }))}>Quitar</button>
+              </div>)}
+              <button type="button" className="secondary" onClick={() => setImageProposal(current => current && ({ ...current, classes: current.classes.map((candidate, index) => index === classIndex ? { ...candidate, attributes: [...candidate.attributes, { name: 'nuevoAtributo', type: 'String', primaryKey: false, required: false, unique: false }] } : candidate) }))}>Agregar atributo</button>
+            </article>)}
           </div>
+          <button type="button" className="secondary" onClick={() => setImageProposal(current => current && ({ ...current, classes: [...current.classes, { name: 'NuevaClase', attributes: [] }] }))}>Agregar clase</button>
+          <h3>Relaciones</h3>
+          {imageProposal.associations.map((link, index) => <div className="proposal-edit-row" key={index}>
+            <select aria-label={`Origen de relación ${index + 1}`} value={link.source} onChange={event => setImageProposal(current => current && ({ ...current, associations: current.associations.map((value, i) => i === index ? { ...value, source: event.target.value } : value) }))}>{imageProposal.classes.map((item, i) => <option key={i} value={item.name}>{item.name}</option>)}</select>
+            <select aria-label={`Cardinalidad origen ${index + 1}`} value={link.sourceCardinality} onChange={event => setImageProposal(current => current && ({ ...current, associations: current.associations.map((value, i) => i === index ? { ...value, sourceCardinality: event.target.value as typeof value.sourceCardinality } : value) }))}>{cardinalities.map(value => <option key={value}>{value}</option>)}</select>
+            <select aria-label={`Destino de relación ${index + 1}`} value={link.target} onChange={event => setImageProposal(current => current && ({ ...current, associations: current.associations.map((value, i) => i === index ? { ...value, target: event.target.value } : value) }))}>{imageProposal.classes.map((item, i) => <option key={i} value={item.name}>{item.name}</option>)}</select>
+            <select aria-label={`Cardinalidad destino ${index + 1}`} value={link.targetCardinality} onChange={event => setImageProposal(current => current && ({ ...current, associations: current.associations.map((value, i) => i === index ? { ...value, targetCardinality: event.target.value as typeof value.targetCardinality } : value) }))}>{cardinalities.map(value => <option key={value}>{value}</option>)}</select>
+            <input aria-label={`Nombre de relación ${index + 1}`} value={link.name ?? ''} onChange={event => setImageProposal(current => current && ({ ...current, associations: current.associations.map((value, i) => i === index ? { ...value, name: event.target.value } : value) }))} />
+            <button type="button" className="secondary" onClick={() => setImageProposal(current => current && ({ ...current, associations: current.associations.filter((_, i) => i !== index) }))}>Quitar</button>
+          </div>)}
+          {imageProposal.classes.length > 1 && <button type="button" className="secondary" onClick={() => setImageProposal(current => current && ({ ...current, associations: [...current.associations, { source: current.classes[0].name, target: current.classes[1].name, sourceCardinality: '1', targetCardinality: '0..*' }] }))}>Agregar relación</button>}
           {imageProposal.warnings?.map(warning => <p className="warning" key={warning}>{warning}</p>)}
-          <footer><button className="secondary" onClick={() => setImageProposal(undefined)}>Cancelar</button><button className="primary" onClick={acceptImageProposal}>Incorporar y corregir</button></footer>
+          <footer><button className="secondary" onClick={() => setImageProposal(undefined)}>Cancelar</button><button className="primary" disabled={!imageProposal.classes.length} onClick={acceptImageProposal}>Confirmar importación</button></footer>
         </section>
       </div>}
 
@@ -345,7 +454,6 @@ export default function App({ projectId, userName, role, onBack, onLogout }: { p
           <div className="xmi-summary">
             <span><strong>{xmiPreview.diagram.packages.length}</strong> paquetes</span>
             <span><strong>{xmiPreview.diagram.classes.length}</strong> clases</span>
-            <span><strong>{xmiPreview.diagram.enumerations.length}</strong> enumeraciones</span>
             <span><strong>{xmiPreview.diagram.associations.length}</strong> asociaciones</span>
             <span><strong>{xmiPreview.diagram.generalizations.length}</strong> generalizaciones</span>
           </div>

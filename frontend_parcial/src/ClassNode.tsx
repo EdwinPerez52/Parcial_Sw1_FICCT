@@ -1,8 +1,9 @@
+import { memo } from 'react';
 import { Handle, NodeProps, Position } from '@xyflow/react';
 import { KeyRound } from 'lucide-react';
 import { ClassElement } from './domain';
 
-export function ClassNode({ data, selected }: NodeProps) {
+export const ClassNode = memo(function ClassNode({ data, selected }: NodeProps) {
   const item = data as unknown as ClassElement;
   return (
     <article className={`class-node ${selected ? 'selected' : ''}`}>
@@ -20,5 +21,6 @@ export function ClassNode({ data, selected }: NodeProps) {
       <Handle type="source" position={Position.Right} />
     </article>
   );
-}
+});
+
 

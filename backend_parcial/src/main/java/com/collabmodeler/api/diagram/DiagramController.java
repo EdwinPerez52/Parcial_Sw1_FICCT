@@ -7,7 +7,6 @@ import com.collabmodeler.api.collaboration.CollaborationEventPublisher;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.web.bind.annotation.*;
 
 import java.security.Principal;

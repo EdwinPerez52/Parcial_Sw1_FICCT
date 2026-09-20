@@ -1,7 +1,6 @@
 package com.collabmodeler.api.access;
 
 import org.springframework.http.HttpStatus;
-import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 import com.collabmodeler.api.auth.AccountPrincipal;
@@ -57,7 +56,6 @@ public class AccessController {
     public static String displayName(Principal principal) {
         AccountPrincipal account = account(principal);
         if (account != null) return account.fullName();
-        if (principal instanceof OAuth2User user) return user.getAttribute("name");
         return principal == null ? "" : principal.getName();
     }
     public static void requireVerified(Principal principal) {

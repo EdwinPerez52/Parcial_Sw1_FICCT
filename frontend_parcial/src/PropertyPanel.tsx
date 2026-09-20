@@ -8,17 +8,27 @@ const blankAttribute = (): Omit<Attribute, 'id' | 'version'> => ({
 });
 
 export function PropertyPanel({ report }: { report: (message: string) => void }) {
-  const state = useDiagramStore();
-  const { diagram, selectedIds } = state;
+  const diagram = useDiagramStore(s => s.diagram);
+  const selectedIds = useDiagramStore(s => s.selectedIds);
+  const addAttribute = useDiagramStore(s => s.addAttribute);
+  const updateAttribute = useDiagramStore(s => s.updateAttribute);
+  const reorderAttribute = useDiagramStore(s => s.reorderAttribute);
+  const deleteAttribute = useDiagramStore(s => s.deleteAttribute);
+  const renameClass = useDiagramStore(s => s.renameClass);
+  const deleteClass = useDiagramStore(s => s.deleteClass);
+  const addAssociation = useDiagramStore(s => s.addAssociation);
+  const updateAssociation = useDiagramStore(s => s.updateAssociation);
+  const deleteAssociation = useDiagramStore(s => s.deleteAssociation);
+  const addGeneralization = useDiagramStore(s => s.addGeneralization);
+  const deleteGeneralization = useDiagramStore(s => s.deleteGeneralization);
+  const deleteSelected = useDiagramStore(s => s.deleteSelected);
+
   const selectedId = selectedIds.length === 1 ? selectedIds[0] : undefined;
   const selectedClass = diagram.classes.find(item => item.id === selectedId);
-  const selectedEnumeration = diagram.enumerations.find(item => item.id === selectedId);
   const selectedAssociation = diagram.associations.find(item => item.id === selectedId);
   const selectedGeneralization = diagram.generalizations.find(item => item.id === selectedId);
   const [className, setClassName] = useState('');
   const [attribute, setAttribute] = useState(blankAttribute);
-  const [enumName, setEnumName] = useState('');
-  const [enumValues, setEnumValues] = useState('');
   const [sourceId, setSourceId] = useState('');
   const [targetId, setTargetId] = useState('');
   const [relationName, setRelationName] = useState('');
@@ -29,14 +39,12 @@ export function PropertyPanel({ report }: { report: (message: string) => void })
 
   useEffect(() => {
     setClassName(selectedClass?.name ?? '');
-    setEnumName(selectedEnumeration?.name ?? '');
-    setEnumValues(selectedEnumeration?.values.map(value => value.name).join('\n') ?? '');
     if (selectedAssociation) {
       setSourceId(selectedAssociation.sourceId); setTargetId(selectedAssociation.targetId);
       setRelationName(selectedAssociation.name ?? ''); setSourceCardinality(selectedAssociation.sourceCardinality);
       setTargetCardinality(selectedAssociation.targetCardinality); setOwningSide(selectedAssociation.owningSide);
     }
-  }, [selectedClass, selectedEnumeration, selectedAssociation]);
+  }, [selectedClass, selectedAssociation]);
 
   const safe = (action: () => void, success: string) => {
     try { action(); setNotice(success); report(success); }
@@ -50,22 +58,14 @@ export function PropertyPanel({ report }: { report: (message: string) => void })
     event.preventDefault();
     if (!selectedClass) return;
     safe(() => {
-      state.addAttribute(selectedClass.id, attribute);
+      addAttribute(selectedClass.id, attribute);
       setAttribute(blankAttribute());
     }, 'Atributo creado.');
   };
 
-  const saveEnumeration = () => {
-    if (!selectedEnumeration) return;
-    const existing = new Map(selectedEnumeration.values.map(item => [item.name, item]));
-    const values = enumValues.split(/[\n,]/).map(value => value.trim()).filter(Boolean)
-      .map(name => existing.get(name) ?? { id: createId(), name, version: 1 });
-    safe(() => state.updateEnumeration({ ...selectedEnumeration, name: enumName, values }), 'Enumeración actualizada.');
-  };
-
   const saveAssociation = () => {
     if (!selectedAssociation) return;
-    safe(() => state.updateAssociation({
+    safe(() => updateAssociation({
       ...selectedAssociation, sourceId, targetId, name: relationName || undefined,
       sourceCardinality, targetCardinality, owningSide,
     }), 'Asociación actualizada.');
@@ -74,7 +74,7 @@ export function PropertyPanel({ report }: { report: (message: string) => void })
   const createAssociation = (event: FormEvent) => {
     event.preventDefault();
     if (!sourceId || !targetId) { setNotice('Selecciona las dos clases de la asociación.'); return; }
-    safe(() => state.addAssociation({
+    safe(() => addAssociation({
       sourceId, targetId, name: relationName || undefined, sourceCardinality, targetCardinality,
       sourceRole: '', targetRole: '', owningSide,
     }), 'Asociación creada.');
@@ -82,7 +82,7 @@ export function PropertyPanel({ report }: { report: (message: string) => void })
 
   const createGeneralization = () => {
     if (!sourceId || !targetId) { setNotice('Selecciona padre e hija para la herencia.'); return; }
-    safe(() => state.addGeneralization(sourceId, targetId), 'Herencia creada.');
+    safe(() => addGeneralization(sourceId, targetId), 'Herencia creada.');
   };
 
   return (
@@ -96,26 +96,25 @@ export function PropertyPanel({ report }: { report: (message: string) => void })
       {selectedIds.length > 1 && <section>
         <p>Usa las flechas del teclado para mover el grupo o Supr para eliminarlo.</p>
         <button className="danger" onClick={() => {
-          if (window.confirm(`¿Eliminar ${selectedIds.length} elementos?`)) safe(state.deleteSelected, 'Selección eliminada.');
+          if (window.confirm(`¿Eliminar ${selectedIds.length} elementos?`)) safe(deleteSelected, 'Selección eliminada.');
         }}><Trash2 size={14} /> Eliminar selección</button>
       </section>}
 
       {selectedClass && <section>
         <h3>Clase</h3>
         <label>Nombre<input value={className} onChange={event => setClassName(event.target.value)} /></label>
-        <button onClick={() => safe(() => state.renameClass(selectedClass.id, className), 'Clase actualizada.')}>Guardar nombre</button>
+        <button onClick={() => safe(() => renameClass(selectedClass.id, className), 'Clase actualizada.')}>Guardar nombre</button>
         <h3>Atributos</h3>
         {selectedClass.attributes.map((item, index) => <AttributeEditor key={item.id} value={item}
-          enumNames={diagram.enumerations.map(value => value.name)}
-          onSave={value => safe(() => state.updateAttribute(selectedClass.id, value), 'Atributo actualizado.')}
+          onSave={value => safe(() => updateAttribute(selectedClass.id, value), 'Atributo actualizado.')}
           onDelete={() => {
-            if (window.confirm(`¿Eliminar el atributo ${item.name}?`)) safe(() => state.deleteAttribute(selectedClass.id, item.id), 'Atributo eliminado.');
+            if (window.confirm(`¿Eliminar el atributo ${item.name}?`)) safe(() => deleteAttribute(selectedClass.id, item.id), 'Atributo eliminado.');
           }}
-          onMove={delta => state.reorderAttribute(selectedClass.id, item.id, index + delta)} />)}
+          onMove={delta => reorderAttribute(selectedClass.id, item.id, index + delta)} />)}
         <form className="compact-form" onSubmit={submitAttribute}>
           <input aria-label="Nombre del atributo" value={attribute.name} onChange={event => setAttribute({ ...attribute, name: event.target.value })} />
           <select aria-label="Tipo del atributo" value={attribute.type} onChange={event => setAttribute({ ...attribute, type: event.target.value })}>
-            {[...scalarTypes, ...diagram.enumerations.map(value => value.name)].map(type => <option key={type}>{type}</option>)}
+            {scalarTypes.map(type => <option key={type}>{type}</option>)}
           </select>
           <div className="check-row">
             <label><input type="checkbox" checked={attribute.primaryKey} onChange={event => setAttribute({ ...attribute, primaryKey: event.target.checked })} /> PK</label>
@@ -125,31 +124,19 @@ export function PropertyPanel({ report }: { report: (message: string) => void })
           <button type="submit"><Plus size={14} /> Agregar atributo</button>
         </form>
         <button className="danger" onClick={() => {
-          if (window.confirm(`¿Eliminar la clase ${selectedClass.name} y sus relaciones?`)) state.deleteClass(selectedClass.id);
+          if (window.confirm(`¿Eliminar la clase ${selectedClass.name} y sus relaciones?`)) deleteClass(selectedClass.id);
         }}><Trash2 size={14} /> Eliminar clase</button>
-      </section>}
-
-      {selectedEnumeration && <section>
-        <h3>Enumeración</h3>
-        <label>Nombre<input value={enumName} onChange={event => setEnumName(event.target.value)} /></label>
-        <label>Valores (uno por línea)<textarea rows={6} value={enumValues} onChange={event => setEnumValues(event.target.value)} /></label>
-        <button onClick={saveEnumeration}>Guardar enumeración</button>
-        <button className="danger" onClick={() => {
-          if (window.confirm(`¿Eliminar la enumeración ${selectedEnumeration.name}?`)) {
-            safe(() => state.deleteEnumeration(selectedEnumeration.id), 'Enumeración eliminada.');
-          }
-        }}><Trash2 size={14} /> Eliminar</button>
       </section>}
 
       {selectedAssociation && <section>
         <h3>Asociación</h3>
         <RelationFields classes={diagram.classes} values={{ sourceId, targetId, relationName, sourceCardinality, targetCardinality, owningSide }}
           setters={{ setSourceId, setTargetId, setRelationName, setSourceCardinality, setTargetCardinality, setOwningSide }} />
-        <label>Rol origen<input value={selectedAssociation.sourceRole ?? ''} onChange={event => state.updateAssociation({ ...selectedAssociation, sourceRole: event.target.value })} /></label>
-        <label>Rol destino<input value={selectedAssociation.targetRole ?? ''} onChange={event => state.updateAssociation({ ...selectedAssociation, targetRole: event.target.value })} /></label>
+        <label>Rol origen<input value={selectedAssociation.sourceRole ?? ''} onChange={event => updateAssociation({ ...selectedAssociation, sourceRole: event.target.value })} /></label>
+        <label>Rol destino<input value={selectedAssociation.targetRole ?? ''} onChange={event => updateAssociation({ ...selectedAssociation, targetRole: event.target.value })} /></label>
         <button onClick={saveAssociation}>Guardar asociación</button>
         <button className="danger" onClick={() => {
-          if (window.confirm('¿Eliminar esta asociación?')) state.deleteAssociation(selectedAssociation.id);
+          if (window.confirm('¿Eliminar esta asociación?')) deleteAssociation(selectedAssociation.id);
         }}><Trash2 size={14} /> Eliminar</button>
       </section>}
 
@@ -157,11 +144,11 @@ export function PropertyPanel({ report }: { report: (message: string) => void })
         <h3>Herencia</h3>
         <p>{diagram.classes.find(item => item.id === selectedGeneralization.childId)?.name} hereda de {diagram.classes.find(item => item.id === selectedGeneralization.parentId)?.name}.</p>
         <button className="danger" onClick={() => {
-          if (window.confirm('¿Eliminar esta herencia?')) state.deleteGeneralization(selectedGeneralization.id);
+          if (window.confirm('¿Eliminar esta herencia?')) deleteGeneralization(selectedGeneralization.id);
         }}><Trash2 size={14} /> Eliminar herencia</button>
       </section>}
 
-      {!selectedClass && !selectedEnumeration && !selectedAssociation && !selectedGeneralization && selectedIds.length < 2 && <section>
+      {!selectedClass && !selectedAssociation && !selectedGeneralization && selectedIds.length < 2 && <section>
         <h3>Crear relación</h3>
         <form className="compact-form" onSubmit={createAssociation}>
           <RelationFields classes={diagram.classes} values={{ sourceId, targetId, relationName, sourceCardinality, targetCardinality, owningSide }}
@@ -175,15 +162,15 @@ export function PropertyPanel({ report }: { report: (message: string) => void })
   );
 }
 
-function AttributeEditor({ value, enumNames, onSave, onDelete, onMove }: {
-  value: Attribute; enumNames: string[]; onSave: (value: Attribute) => void; onDelete: () => void; onMove: (delta: number) => void;
+function AttributeEditor({ value, onSave, onDelete, onMove }: {
+  value: Attribute; onSave: (value: Attribute) => void; onDelete: () => void; onMove: (delta: number) => void;
 }) {
   const [draft, setDraft] = useState(value);
   useEffect(() => setDraft(value), [value]);
   return <div className="attribute-editor">
     <input value={draft.name} aria-label={`Nombre de ${value.name}`} onChange={event => setDraft({ ...draft, name: event.target.value })} />
     <select value={draft.type} onChange={event => setDraft({ ...draft, type: event.target.value })}>
-      {[...scalarTypes, ...enumNames].map(type => <option key={type}>{type}</option>)}
+      {scalarTypes.map(type => <option key={type}>{type}</option>)}
     </select>
     <div className="check-row">
       <label><input type="checkbox" checked={draft.primaryKey} onChange={event => setDraft({ ...draft, primaryKey: event.target.checked })} />PK</label>

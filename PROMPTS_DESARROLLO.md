@@ -21,7 +21,7 @@ Objetivo: hacer que Collab Modeler pueda instalarse, compilarse, probarse y ejec
 
 Revisa las versiones actuales y agrega Maven Wrapper al backend y una forma documentada de habilitar pnpm mediante Corepack y Flutter SDK. Verifica los scripts raíz para desarrollo, build y pruebas de web, backend y Flutter. Completa .gitignore para excluir node_modules, dist, target, .dart_tool, build de Flutter, secretos, archivos tfstate y configuración local. Revisa Dockerfiles y docker-compose.yml sin eliminar los servicios existentes.
 
-Crea comandos claros para: instalar dependencias, ejecutar frontend y backend, levantar PostgreSQL y Redis, validar Flutter, detectar un dispositivo Android por ADB, ejecutar todas las pruebas y detener el entorno. Añade health checks donde sean necesarios. Actualiza README.md con requisitos, variables de entorno y solución de problemas frecuentes, incluyendo Flutter SDK, Android SDK, ADB y depuración USB para el Samsung A56.
+Crea comandos claros para: instalar dependencias, ejecutar frontend y backend, levantar PostgreSQL y Redis, validar Flutter, detectar un dispositivo Android por ADB (configurando redirección con adb reverse tcp:8080 tcp:8080 hacia localhost), ejecutar todas las pruebas y detener el entorno. Añade health checks donde sean necesarios. Actualiza README.md con requisitos, variables de entorno y solución de problemas frecuentes, incluyendo Flutter SDK, Android SDK, ADB y depuración USB para el dispositivo móvil.
 
 Criterio de aceptación: desde una copia limpia se puede levantar el entorno, abrir el frontend, consultar la salud del backend, validar Flutter y ejecutar todas las pruebas disponibles con comandos documentados.
 ```
@@ -72,7 +72,7 @@ Implementa un panel de propiedades para crear, editar y eliminar clases, atribut
 Mantén React Flow y Zustand. Evita mutaciones directas del estado. Garantiza que cada acción manual genere una DiagramOperation válida y que los nodos y enlaces representen visualmente asociaciones, cardinalidades y herencia. Añade pruebas de componentes y del store.
 
 Criterio de aceptación: un usuario puede construir desde cero modelos de ventas, colegio y salud exclusivamente desde la interfaz y recargarlos sin pérdida de información.
-
+```
 
 --## 06. Identidad, autenticación y acceso por invitación
 
@@ -181,7 +181,7 @@ Criterio de aceptación: instrucciones equivalentes manuales y textuales produce
 ```text
 Objetivo: completar las entradas por voz y fotografías sin comprometer la integridad del modelo.
 
-Para voz, implementa estados de permiso, grabación, transcripción, error y reintento; la transcripción debe recorrer exactamente el mismo flujo seguro del asistente textual. Para imágenes, valida MIME real, tamaño y dimensiones, procesa mediante el adaptador de visión y devuelve una propuesta estructurada con advertencias y nivel de confianza.
+Para voz, implementa estados de permiso, grabación, transcripción, error y reintento; soporta reconocimiento nativo directo del navegador y transcripción por servidor según disponibilidad del proveedor; la transcripción debe recorrer exactamente el mismo flujo seguro del asistente textual. Para imágenes, valida MIME real, tamaño y dimensiones, optimiza la resolución en cliente antes del envío para evitar tiempos de espera excesivos, procesa mediante el adaptador de visión y devuelve una propuesta estructurada con advertencias y nivel de confianza.
 
 Mejora la vista previa para permitir corregir clases, atributos y relaciones antes de confirmar. La confirmación debe aplicar un solo BATCH atómico; cancelar no debe producir ninguna operación.
 
@@ -199,35 +199,35 @@ Incluye PostgreSQL, Flyway, configuración por variables, Dockerfile multi-stage
 
 Valida antes de generar nombres, tipos, claves primarias, cardinalidades, referencias, propiedad de relaciones y ciclos. Los errores deben incluir el UUID del elemento afectado. Mantén @ModelElement y amplía model-traceability.json a clases, campos y relaciones con archivo y líneas.
 
-Genera desde una versión guardada, no desde un documento mutable sin identificar. El ZIP debe contener solo el backend, OpenAPI, Docker Compose, README y trazabilidad; no debe contener código Flutter. Emite por separado un modeler-mobile-spec.json firmado, ligado a la misma revisión y a openapi.yaml, para que un agente local genere el móvil. Protege nombres de ZIP y rutas contra path traversal.
+Genera desde una versión guardada, no desde un documento mutable sin identificar. El ZIP debe contener solo el backend, OpenAPI, Docker Compose, README y trazabilidad; no debe contener código Flutter. Emite por separado un modeler-mobile-spec.json firmado, ligado a la misma revisión y a openapi.yaml, para que un agente local o generador en vivo produzca el frontend móvil Flutter en ese mismo momento de la presentación. Protege nombres de ZIP y rutas contra path traversal.
 
 Criterio de aceptación: los backends de modelos de ventas, colegio y salud compilan, ejecutan sus pruebas, autentican usuarios, publican OpenAPI y permiten consumir todos sus CRUD contra PostgreSQL mediante Testcontainers.
 ```
 
-## 16. Plantilla y generador Flutter local para Android
+## 16. Plantilla y generador Flutter local para Android y Multiplataforma
 
 ```text
-Objetivo: crear la plantilla y el generador Flutter que producirá localmente una aplicación Android desde modeler-mobile-spec.json y el contrato OpenAPI de la misma revisión.
+Objetivo: crear la plantilla y el generador Flutter que producirá en tiempo de presentación la aplicación móvil/multiplataforma desde modeler-mobile-spec.json y el contrato OpenAPI del backend generado.
 
 Crea una plantilla Flutter mantenible, organizada por capas y sin código de ejemplo estático. Desde modeler-mobile-spec.json y OpenAPI, produce modelos tipados, cliente HTTP autenticado, repositorios, gestión de estado, rutas, listas paginadas, búsqueda, vista de detalle, formularios de alta y edición, eliminación confirmada, validación y selección de relaciones para cada entidad. Soporta enumeraciones y herencia según la semántica que exponga la API.
 
-La interfaz será un CRUD adaptable: no intentes inventar pantallas de negocio como pagos o descuentos solo a partir de nombres de tablas. Incluye internacionalización inicial en español, tema accesible, manejo uniforme de carga/error/vacío y configuración de API mediante --dart-define con alternativa editable para desarrollo. Genera README del proyecto móvil con comandos Android, conexión al backend del mismo hito y configuración de IP local.
+La interfaz será un CRUD adaptable: no intentes inventar pantallas de negocio como pagos o descuentos solo a partir de nombres de tablas. Incluye internacionalización inicial en español, tema accesible, manejo uniforme de carga/error/vacío y configuración de API por defecto a http://localhost:8080 mediante --dart-define con alternativa editable en tiempo de ejecución. Genera README del proyecto móvil con comandos Flutter/Android, conexión inmediata al backend en localhost:8080 (usando adb reverse tcp:8080 tcp:8080 para Android físico/emulador, o directo en Flutter Web/Desktop) y configuración alternativa para IP local.
 
-Criterio de aceptación: para modelos de ventas, colegio y salud se genera localmente una aplicación Android que se autentica y permite operar cada entidad y relación contra el backend generado desde la misma revisión.
+Criterio de aceptación: para modelos de ventas, colegio y salud se genera en caliente una aplicación Flutter que se autentica y permite operar cada entidad y relación contra el backend generado desde la misma revisión en localhost:8080.
 ```
 
-## 17. Agente local, APK y Samsung A56 físico
+## 17. Agente local, generación Flutter en vivo y ejecución en dispositivo móvil
 
 ```text
-Objetivo: crear Collab Modeler Local Agent para generar Flutter en la computadora, compilar APK e instalar o ejecutar la aplicación en un Samsung A56 físico.
+Objetivo: crear Collab Modeler Local Agent para generar el proyecto Flutter en caliente durante la presentación, compilar o ejecutar la aplicación y conectarla de inmediato al backend generado en localhost.
 
-Implementa un agente local de Windows que se comunique únicamente por loopback con la web, valide el origen de la solicitud y acepte modeler-mobile-spec.json firmado y de un solo uso. Al recibir una orden, permite elegir una carpeta segura de salida, genera el proyecto Flutter desde las plantillas locales, verifica Flutter SDK, Android SDK y ADB, y detecta dispositivos mediante adb devices.
+Implementa un agente local de Windows/Linux que se comunique por loopback con la web, valide el origen de la solicitud y acepte modeler-mobile-spec.json firmado y de un solo uso. Al recibir la orden, permite elegir una carpeta segura de salida, genera el proyecto Flutter desde las plantillas locales al instante, verifica Flutter SDK, Android SDK y ADB, y detecta dispositivos mediante adb devices.
 
-Implementa el flujo “Generar app móvil” en la web: obtiene la especificación de una revisión inmutable, solicita confirmación al agente local y muestra progreso, errores y ubicación final del proyecto. El agente debe permitir ejecutar flutter run en el Samsung A56 conectado y generar flutter build apk --release para distribución. Nunca debe aceptar rutas arbitrarias, ejecutar comandos suministrados por el servidor ni exponer un puerto de red externo.
+Implementa el flujo “Generar app móvil” en la web: obtiene la especificación de una revisión inmutable, solicita confirmación al agente local y muestra progreso, errores y ubicación final del proyecto generado. El agente debe permitir ejecutar flutter run directamente en el dispositivo móvil conectado (o emulador/web) y generar flutter build apk --release. Nunca debe aceptar rutas arbitrarias, ejecutar comandos suministrados por el servidor ni exponer un puerto de red externo.
 
-Configura la URL de API para dispositivo físico. No uses localhost en Android: detecta o solicita la IP privada de la computadora, valida que tenga formato seguro y configura la app con --dart-define=API_BASE_URL=http://IP_DE_LA_PC:8080. Documenta depuración USB, firewall de Windows y la necesidad de que PC y Samsung compartan Wi-Fi.
+Configura la URL de API por defecto a http://localhost:8080 (--dart-define=API_BASE_URL=http://localhost:8080). Para que el dispositivo Android físico conectado por USB consuma el backend local de la PC sin depender de Wi-Fi, ejecuta automáticamente o documenta el comando adb reverse tcp:8080 tcp:8080. Permite alternativamente ingresar la IP privada de la máquina (http://IP_DE_LA_PC:8080) si se prefiere conexión por red local inalámbrica.
 
-Criterio de aceptación: desde la web se inicia una generación ligada a una revisión; el agente crea el proyecto fuera del ZIP, detecta el Samsung A56, compila o ejecuta Flutter en el teléfono y la app alcanza el backend de la PC mediante su IP local.
+Criterio de aceptación: desde la web se inicia la generación en vivo ligada a una revisión; el agente crea el proyecto Flutter en segundos, ejecuta o instala la aplicación en el dispositivo móvil y la app consume exitosamente el backend generado en localhost:8080.
 ```
 
 ## 18. Flutter offline-first y sincronización bidireccional
@@ -235,11 +235,11 @@ Criterio de aceptación: desde la web se inicia una generación ligada a una rev
 ```text
 Objetivo: permitir que la aplicación Flutter generada siga funcionando sin conexión sin perder modificaciones.
 
-Implementa almacenamiento local SQLite para datos consultados y una outbox transaccional para operaciones CRUD pendientes. Cada operación debe contener un identificador idempotente, entidad, registro, versión base, fecha y payload. Los cambios locales deben reflejarse de forma optimista. Al recuperar conexión, sincroniza cambios remotos y reintenta la outbox en orden seguro.
+Implementa almacenamiento local SQLite para datos consultados y una outbox transaccional para operaciones CRUD pendientes. Cada operación debe contener un identificador idempotente, entidad, registro, versión base, fecha y payload. Los cambios locales deben reflejarse de forma optimista. Al recuperar conexión con el backend en localhost:8080 o IP local, sincroniza cambios remotos y reintenta la outbox en orden seguro.
 
 Implementa detección de conflicto cuando servidor y dispositivo modifican el mismo dato. Muestra al usuario una comparación de valor local y remoto para conservar, descartar o editar de nuevo; nunca descartes cambios incompatibles de forma silenciosa. Protege tokens con almacenamiento seguro del dispositivo y conserva la sesión cuando el token pueda refrescarse.
 
-Criterio de aceptación: crear, editar y eliminar registros offline funciona; tras recuperar red no se duplican operaciones, los cambios compatibles convergen y los conflictos quedan visibles para decisión del usuario.
+Criterio de aceptación: crear, editar y eliminar registros offline funciona; tras recuperar conexión con el backend no se duplican operaciones, los cambios compatibles convergen y los conflictos quedan visibles para decisión del usuario.
 ```
 
 ## 19. IA local en Flutter: texto, voz y fotografía
@@ -249,9 +249,9 @@ Objetivo: proporcionar asistencia móvil offline-first para operar datos generad
 
 Implementa un intérprete local de comandos de texto que produzca propuestas CRUD estructuradas y reutilice las reglas de validación de formularios. Para voz, integra reconocimiento disponible en el dispositivo y convierte la transcripción mediante el mismo intérprete. Para fotografías, implementa captura, permisos, validación y OCR local para extraer textos, códigos y valores que se presenten como propuesta de búsqueda o formulario.
 
-Toda creación, edición o eliminación generada por IA debe mostrar una vista previa y requerir confirmación. No ejecutes código ni SQL proveniente de IA. Cuando haya conexión, permite enviar opcionalmente imágenes o comandos a un proveedor remoto configurado para análisis visual complejo, pero mantén la propuesta bajo confirmación y no bloquees el uso offline. No guardes imágenes, audios, tokens ni transcripciones sensibles en logs.
+Toda creación, edición o eliminación generada por IA debe mostrar una vista previa y requerir confirmación. No ejecutes código ni SQL proveniente de IA. Cuando haya conexión con el backend o proveedor configurado, permite enviar opcionalmente imágenes o comandos para análisis visual complejo, pero mantén la propuesta bajo confirmación y no bloquees el uso offline. No guardes imágenes, audios, tokens ni transcripciones sensibles en logs.
 
-Criterio de aceptación: texto y voz permiten proponer operaciones CRUD sin red; OCR propone campos desde una foto sin red; cancelar no modifica datos y las operaciones confirmadas se sincronizan al recuperar conexión.
+Criterio de aceptación: texto y voz permiten proponer operaciones CRUD sin red; OCR propone campos desde una foto sin red; cancelar no modifica datos y las operaciones confirmadas se sincronizan al recuperar conexión con el backend.
 ```
 
 ## 20. Generación asíncrona de backend y especificación móvil
@@ -259,11 +259,11 @@ Criterio de aceptación: texto y voz permiten proponer operaciones CRUD sin red;
 ```text
 Objetivo: hacer que la generación del backend ZIP y de la especificación móvil sea confiable, trazable y escalable.
 
-Modela trabajos de generación con estado QUEUED, RUNNING, SUCCEEDED y FAILED, revisión o versión fuente, solicitante, fechas y error seguro. Cada trabajo debe generar un ZIP único solo con backend, README, Docker Compose, contrato OpenAPI y trazabilidad, además de un modeler-mobile-spec.json firmado y vinculado a la misma revisión. El código Flutter se genera exclusivamente en la computadora mediante el agente local y no se almacena dentro del ZIP. En local puede existir un ejecutor compatible, pero en AWS utiliza SQS y trabajadores separados. Guarda ZIP, especificaciones e imágenes en almacenamiento de objetos con nombres no predecibles, cifrado, expiración y URLs firmadas de corta duración.
+Modela trabajos de generación con estado QUEUED, RUNNING, SUCCEEDED y FAILED, revisión o versión fuente, solicitante, fechas y error seguro. Cada trabajo debe generar un ZIP único solo con backend, README, Docker Compose, contrato OpenAPI y trazabilidad, además de un modeler-mobile-spec.json firmado y vinculado a la misma revisión. El código Flutter se genera en caliente en la computadora mediante el agente local a partir de dicha especificación y no se almacena dentro del ZIP. En local puede existir un ejecutor compatible, pero en AWS utiliza SQS y trabajadores separados. Guarda ZIP, especificaciones e imágenes en almacenamiento de objetos con nombres no predecibles, cifrado, expiración y URLs firmadas de corta duración.
 
 Implementa endpoints y frontend para iniciar, consultar progreso, reintentar y descargar. Garantiza idempotencia y evita generar dos veces el mismo trabajo por reintentos de red.
 
-Criterio de aceptación: cerrar el navegador no cancela el trabajo, el backend ZIP y la especificación móvil pueden consultarse posteriormente, ambos pertenecen a la misma revisión y solo miembros autorizados pueden descargarlos o enviarlos al agente local.
+Criterio de aceptación: cerrar el navegador no cancela el trabajo, el backend ZIP y la especificación móvil pueden consultarse posteriormente, ambos pertenecen a la misma revisión y solo miembros autorizados pueden descargarlos o enviarlos al agente local para generar el móvil en el momento.
 ```
 
 ## 21. Seguridad, observabilidad y calidad integral
@@ -299,9 +299,9 @@ Criterio de aceptación: un commit aprobado despliega al ambiente de prueba, eje
 ```text
 Objetivo: verificar el producto completo contra PLAN.md y dejarlo listo para demostración y mantenimiento.
 
-Crea una matriz de trazabilidad que relacione cada requisito de PLAN.md con implementación y pruebas. Ejecuta una prueba integral: registro invitado con nombre completo, verificación por correo, inicio con correo/contraseña y Google vinculado, solicitud pendiente, aprobación como lector o editor, creación de proyecto, enlace compartido, dos participantes, edición simultánea, conflicto, reconexión, comentarios, versión, restauración, texto, voz, imagen, XMI y generación de backend ZIP más especificación móvil. Compila el backend, levanta PostgreSQL, genera Flutter mediante el agente local, detecta un Samsung A56 físico, instala un APK, opera CRUD conectado, opera CRUD sin red y verifica la sincronización y los conflictos.
+Crea una matriz de trazabilidad que relacione cada requisito de PLAN.md con implementación y pruebas. Ejecuta una prueba integral: registro invitado con nombre completo, verificación por correo, inicio con correo/contraseña y Google vinculado, solicitud pendiente, aprobación como lector o editor, creación de proyecto, enlace compartido, dos participantes, edición simultánea, conflicto, reconexión, comentarios, versión, restauración, texto, voz, imagen, XMI y generación de backend ZIP más especificación móvil. Compila el backend generado, levanta PostgreSQL, genera el proyecto Flutter en caliente desde el agente local, conecta la app móvil al backend en localhost:8080 (usando adb reverse o IP local), opera CRUD conectado, opera CRUD sin red y verifica la sincronización y los conflictos.
 
-Completa documentación de arquitectura, API OpenAPI, modelo de datos, ejecución local, configuración de IA, generación Flutter, sincronización offline, despliegue, backups, recuperación, seguridad y guía de usuario. Elimina datos simulados, botones sin implementar, código muerto y artefactos compilados versionados. Registra limitaciones reales y no presentes como terminadas funciones sin prueba.
+Completa documentación de arquitectura, API OpenAPI, modelo de datos, ejecución local, configuración de IA, generación Flutter en vivo, sincronización offline, despliegue, backups, recuperación, seguridad y guía de usuario. Elimina datos simulados, botones sin implementar, código muerto y artefactos compilados versionados. Registra limitaciones reales y no presentes como terminadas funciones sin prueba.
 
 Criterio de aceptación: todos los requisitos acordados tienen evidencia verificable, la prueba integral pasa en el ambiente de prueba y una persona nueva puede instalar, usar y mantener el sistema siguiendo la documentación.
 ```

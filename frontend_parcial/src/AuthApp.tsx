@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { ArrowRight, FolderOpen, LogIn, LogOut, Plus, ShieldCheck } from 'lucide-react';
+import { ArrowRight, FolderOpen, LogIn, LogOut, Plus, ShieldCheck, UserPlus } from 'lucide-react';
 import App from './App';
 import { CurrentUser, ProjectSummary, authApi, diagramApi } from './api';
 
@@ -31,24 +31,32 @@ function PublicAuth({ invitationToken, forcedRegistration, onAuthenticated }: { 
   const [mode, setMode] = useState<'login' | 'register' | 'forgot'>(forcedRegistration ? 'register' : 'login');
   const [error, setError] = useState(new URLSearchParams(location.search).get('authError') ?? '');
   const [notice, setNotice] = useState('');
+  const [savedEmail, setSavedEmail] = useState('');
   const [invitationValid, setInvitationValid] = useState<boolean | undefined>(invitationToken ? undefined : false);
   useEffect(() => {
     if (invitationToken) void authApi.invitation(invitationToken).then(value => setInvitationValid(value.valid)).catch(() => setInvitationValid(false));
   }, [invitationToken]);
-  const googleUrl = `/api/v1/auth/google${invitationToken ? `?invitationToken=${encodeURIComponent(invitationToken)}` : ''}`;
 
   const submitLogin = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); setError(''); const data = new FormData(event.currentTarget);
     try { await authApi.login(String(data.get('email')), String(data.get('password'))); onAuthenticated(); }
     catch (cause) { setError(messageOf(cause)); }
   };
+
   const submitRegister = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault(); setError(''); const data = new FormData(event.currentTarget);
+    event.preventDefault(); setError(''); setNotice(''); const data = new FormData(event.currentTarget);
+    const fullName = String(data.get('fullName')).trim();
+    const email = String(data.get('email')).trim();
+    const password = String(data.get('password'));
+    const confirmation = String(data.get('confirmation'));
     try {
-      const result = await authApi.register(String(data.get('fullName')), String(data.get('email')), String(data.get('password')), String(data.get('confirmation')), invitationToken);
-      setNotice(result.message); setMode('login');
+      const result = await authApi.register(fullName, email, password, confirmation, invitationToken || undefined);
+      setSavedEmail(email);
+      setNotice(result.message || 'Cuenta creada y guardada exitosamente. Ya puedes iniciar sesión.');
+      setMode('login');
     } catch (cause) { setError(messageOf(cause)); }
   };
+
   const forgot = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); setError(''); const data = new FormData(event.currentTarget);
     try { setNotice((await authApi.forgot(String(data.get('email')))).message); }
@@ -62,32 +70,44 @@ function PublicAuth({ invitationToken, forcedRegistration, onAuthenticated }: { 
       <p>Tu trabajo se guarda por revisiones y cada proyecto conserva sus permisos. No almacenamos credenciales ni tokens de sesión en el navegador.</p>
     </section>
     <section className="auth-card" aria-busy={Boolean(invitationToken) && invitationValid === undefined}>
-      <h2>{mode === 'register' ? 'Completa tu invitación' : mode === 'forgot' ? 'Recupera tu contraseña' : 'Inicia sesión'}</h2>
+      <h2>{mode === 'register' ? (invitationToken ? 'Completa tu invitación' : 'Crear una cuenta') : mode === 'forgot' ? 'Recupera tu contraseña' : 'Inicia sesión'}</h2>
       {invitationToken && invitationValid === false && <div className="form-error" role="alert">La invitación no existe, venció o fue revocada.</div>}
       {error && <div className="form-error" role="alert">{error}</div>}{notice && <div className="form-notice" role="status">{notice}</div>}
       {mode === 'login' && <>
-        <a className="google-button" href={googleUrl}>Continuar con Google</a><div className="divider"><span>o con correo</span></div>
         <form className="auth-form" onSubmit={submitLogin}>
-          <label>Correo electrónico<input name="email" type="email" autoComplete="email" required /></label>
+          <label>Correo electrónico<input name="email" type="email" key={savedEmail} defaultValue={savedEmail} autoComplete="email" required /></label>
           <label>Contraseña<input name="password" type="password" autoComplete="current-password" required /></label>
           <button className="primary" type="submit"><LogIn size={17} /> Entrar</button>
         </form>
-        <button className="text-button" onClick={() => { setMode('forgot'); setError(''); }}>Olvidé mi contraseña</button>
-        {invitationToken && invitationValid && <button className="text-button" onClick={() => { setMode('register'); setError(''); }}>Crear una cuenta con esta invitación</button>}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '12px' }}>
+          <button className="text-button" type="button" onClick={() => { setMode('register'); setError(''); setNotice(''); }}>
+            <UserPlus size={16} style={{ verticalAlign: 'middle', marginRight: '6px' }} />¿No tienes cuenta? Crear una cuenta
+          </button>
+          <button className="text-button" type="button" onClick={() => { setMode('forgot'); setError(''); setNotice(''); }}>
+            Olvidé mi contraseña
+          </button>
+          {invitationToken && invitationValid && (
+            <button className="text-button" type="button" onClick={() => { setMode('register'); setError(''); setNotice(''); }}>
+              Crear una cuenta con esta invitación
+            </button>
+          )}
+        </div>
       </>}
       {mode === 'register' && <form className="auth-form" onSubmit={submitRegister}>
         <label>Nombre completo<input name="fullName" autoComplete="name" minLength={2} maxLength={180} required /></label>
         <label>Correo electrónico<input name="email" type="email" autoComplete="email" required /></label>
         <label>Contraseña<input name="password" type="password" autoComplete="new-password" minLength={10} required /><small>10 caracteres, mayúscula, minúscula y número.</small></label>
         <label>Confirma la contraseña<input name="confirmation" type="password" autoComplete="new-password" minLength={10} required /></label>
-        <button className="primary" disabled={!invitationValid}>Registrarme</button>
-        <button className="text-button" type="button" onClick={() => setMode('login')}>Ya tengo cuenta</button>
+        <button className="primary" type="submit" disabled={Boolean(invitationToken && invitationValid !== true)}>
+          <UserPlus size={17} /> {invitationToken ? 'Registrarme con invitación' : 'Guardar y crear cuenta'}
+        </button>
+        <button className="text-button" type="button" onClick={() => { setMode('login'); setError(''); setNotice(''); }}>Ya tengo cuenta. Iniciar sesión</button>
       </form>}
       {mode === 'forgot' && <form className="auth-form" onSubmit={forgot}>
         <p>Te enviaremos instrucciones si el correo corresponde a una cuenta verificada.</p>
         <label>Correo electrónico<input name="email" type="email" autoComplete="email" required /></label>
         <button className="primary">Enviar instrucciones</button>
-        <button className="text-button" type="button" onClick={() => setMode('login')}>Volver</button>
+        <button className="text-button" type="button" onClick={() => { setMode('login'); setError(''); setNotice(''); }}>Volver</button>
       </form>}
     </section>
   </main>;

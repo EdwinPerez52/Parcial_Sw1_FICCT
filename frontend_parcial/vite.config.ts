@@ -7,8 +7,6 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': 'http://localhost:8080',
-      '/oauth2': 'http://localhost:8080',
-      '/login/oauth2': 'http://localhost:8080',
       '/ws': { target: 'ws://localhost:8080', ws: true },
     },
   },

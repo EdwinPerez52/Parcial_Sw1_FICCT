@@ -1,0 +1,120 @@
+{
+  "3b8ef457-c67c-413a-b147-ad37390859ab" : {
+    "name" : "Usuario",
+    "kind" : "class",
+    "file" : "src/main/java/com/generated/generated_api/model/Usuario.java",
+    "line" : 10
+  },
+  "bfaa1038-d950-44d9-9f55-1429df520553" : {
+    "kind" : "attribute",
+    "line" : 13,
+    "file" : "src/main/java/com/generated/generated_api/model/Usuario.java",
+    "name" : "id",
+    "className" : "Usuario"
+  },
+  "919dbaf2-8b25-4ced-8374-ba7f0ce8abf7" : {
+    "kind" : "attribute",
+    "line" : 17,
+    "file" : "src/main/java/com/generated/generated_api/model/Usuario.java",
+    "name" : "nombre",
+    "className" : "Usuario"
+  },
+  "f2f3e3b1-3e3b-4e78-9992-ef9ee9ceb412" : {
+    "kind" : "attribute",
+    "line" : 21,
+    "file" : "src/main/java/com/generated/generated_api/model/Usuario.java",
+    "name" : "correo",
+    "className" : "Usuario"
+  },
+  "00ede02c-9916-4831-98c9-e40aefa04eed" : {
+    "name" : "Doctor",
+    "kind" : "class",
+    "file" : "src/main/java/com/generated/generated_api/model/Doctor.java",
+    "line" : 10
+  },
+  "ef239eed-8516-4403-a56d-c7e831c14134" : {
+    "kind" : "attribute",
+    "line" : 13,
+    "file" : "src/main/java/com/generated/generated_api/model/Doctor.java",
+    "name" : "id",
+    "className" : "Doctor"
+  },
+  "090add55-1619-4969-8790-151cd00eece3" : {
+    "kind" : "attribute",
+    "line" : 17,
+    "file" : "src/main/java/com/generated/generated_api/model/Doctor.java",
+    "name" : "profesion",
+    "className" : "Doctor"
+  },
+  "2303dc0b-367c-4856-9841-469fbad0ee97" : {
+    "name" : "Prubea",
+    "kind" : "class",
+    "file" : "src/main/java/com/generated/generated_api/model/Prubea.java",
+    "line" : 10
+  },
+  "384d930d-bda0-44a8-a1d4-0d22e0db96b5" : {
+    "kind" : "attribute",
+    "line" : 13,
+    "file" : "src/main/java/com/generated/generated_api/model/Prubea.java",
+    "name" : "id",
+    "className" : "Prubea"
+  },
+  "2beddc00-0a36-4e17-a933-cb03184e93b1" : {
+    "kind" : "attribute",
+    "line" : 17,
+    "file" : "src/main/java/com/generated/generated_api/model/Prubea.java",
+    "name" : "h",
+    "className" : "Prubea"
+  },
+  "14cc9128-3f09-41ca-9b0d-30b4c466d224" : {
+    "kind" : "attribute",
+    "line" : 21,
+    "file" : "src/main/java/com/generated/generated_api/model/Prubea.java",
+    "name" : "sgsg",
+    "className" : "Prubea"
+  },
+  "053b47cc-8858-438c-9943-66bf60b07b77" : {
+    "name" : "Producto",
+    "kind" : "class",
+    "file" : "src/main/java/com/generated/generated_api/model/Producto.java",
+    "line" : 10
+  },
+  "5f9a04a0-a6c4-460d-896d-541e485efac0" : {
+    "kind" : "attribute",
+    "line" : 13,
+    "file" : "src/main/java/com/generated/generated_api/model/Producto.java",
+    "name" : "id",
+    "className" : "Producto"
+  },
+  "718bc5ec-7612-44d5-938c-f67795e1b08d" : {
+    "kind" : "attribute",
+    "line" : 17,
+    "file" : "src/main/java/com/generated/generated_api/model/Producto.java",
+    "name" : "precio",
+    "className" : "Producto"
+  },
+  "ee8a086c-10b3-416c-ad91-b739ac2ceb9c" : {
+    "sourceClass" : "usuario",
+    "name" : "rel_usuario_doctor",
+    "targetClass" : "doctor",
+    "line" : 25,
+    "kind" : "association",
+    "file" : "src/main/java/com/generated/generated_api/model/Usuario.java"
+  },
+  "feb3492b-cf4e-433d-84d9-22183d319e26" : {
+    "sourceClass" : "usuario",
+    "name" : "rel_usuario_prubea",
+    "targetClass" : "prubea",
+    "line" : 29,
+    "kind" : "association",
+    "file" : "src/main/java/com/generated/generated_api/model/Usuario.java"
+  },
+  "c32d7e3b-5ae8-4108-862f-d57eed2da72c" : {
+    "sourceClass" : "usuario",
+    "name" : "rel_usuario_Producto",
+    "targetClass" : "Producto",
+    "line" : 33,
+    "kind" : "association",
+    "file" : "src/main/java/com/generated/generated_api/model/Usuario.java"
+  }
+}

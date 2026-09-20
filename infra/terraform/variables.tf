@@ -14,14 +14,6 @@ variable "api_image" {
   type        = string
   description = "URI inmutable de la imagen API en ECR"
 }
-variable "google_client_id" {
-  type      = string
-  sensitive = true
-}
-variable "google_client_secret" {
-  type      = string
-  sensitive = true
-}
 variable "ai_api_key" {
   type      = string
   sensitive = true
@@ -46,6 +38,3 @@ locals {
     Project = var.project_name, Environment = var.environment, ManagedBy = "Terraform"
   }
 }
-
-
-

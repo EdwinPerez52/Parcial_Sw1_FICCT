@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { DiagramModel } from './domain';
 import { useDiagramStore } from './store';
+import { buildImageImport } from './imageImport';
 
 const base = (): DiagramModel => ({
   id: crypto.randomUUID(), name: 'Prueba', revision: 0,
@@ -13,6 +14,23 @@ describe('diagram store', () => {
     useDiagramStore.setState({ diagram, serverDiagram: diagram, confirmedRevision: 0, diagramId: undefined, selectedIds: [],
       history: [], redoHistory: [], pendingOperations: [], conflicts: [], participants: [], eventSequence: 0,
       syncState: 'offline', lastError: undefined });
+  });
+
+  it('imports a photograph in one BATCH and undoes the whole import once', () => {
+    const before = useDiagramStore.getState().diagram;
+    const target = buildImageImport(before, { classes: [
+      { name: 'Product', attributes: [{ name: 'id', type: 'UUID', primaryKey: true }] },
+      { name: 'Order', attributes: [] },
+    ], associations: [{ source: 'Product', target: 'Order', sourceCardinality: '1', targetCardinality: '0..*' }], warnings: [], confidence: 0.9 });
+    expect(useDiagramStore.getState().diagram).toBe(before);
+    useDiagramStore.getState().replaceFromImport(target);
+    const state = useDiagramStore.getState();
+    expect(state.diagram.revision).toBe(1);
+    expect(state.history.at(-1)?.redo.type).toBe('BATCH');
+    expect(state.diagram.associations).toHaveLength(1);
+    state.undo();
+    expect(useDiagramStore.getState().diagram.classes).toHaveLength(0);
+    expect(useDiagramStore.getState().diagram.associations).toHaveLength(0);
   });
 
   it('creates and edits classes and attributes without mutating previous snapshots', () => {
@@ -39,6 +57,19 @@ describe('diagram store', () => {
     expect(current.classes.find(item => item.id === second.id)?.position.y).toBe(second.position.y - 5);
   });
 
+  it('selects every movable node so all tables can be moved or deleted together', () => {
+    const first = useDiagramStore.getState().addClass('Primera');
+    const second = useDiagramStore.getState().addClass('Segunda');
+
+    useDiagramStore.getState().selectElements([first.id, second.id]);
+    useDiagramStore.getState().moveSelected({ x: 25, y: 10 });
+
+    const state = useDiagramStore.getState();
+    expect(state.diagram.classes.map(item => item.position.x)).toEqual([first.position.x + 25, second.position.x + 25]);
+    state.deleteSelected();
+    expect(useDiagramStore.getState().diagram.classes).toHaveLength(0);
+  });
+
   it('does not update the store when React Flow reports the same selection again', () => {
     const item = useDiagramStore.getState().addClass('Producto');
     useDiagramStore.getState().selectElements([item.id]);
@@ -62,18 +93,10 @@ describe('diagram store', () => {
     expect(useDiagramStore.getState().diagram.associations).toHaveLength(0);
   });
 
-  it('supports enumerations and inheritance', () => {
+  it('supports inheritance', () => {
     const person = useDiagramStore.getState().addClass('Persona');
     const student = useDiagramStore.getState().addClass('Estudiante');
-    const status = useDiagramStore.getState().addEnumeration('Estado');
-    useDiagramStore.getState().updateEnumeration({
-      ...status, values: [{ id: crypto.randomUUID(), name: 'ACTIVO', version: 1 }],
-    });
-    const enumerationOperation = useDiagramStore.getState().history.at(-1)?.redo;
-    expect(enumerationOperation?.type).toBe('BATCH');
-    expect((enumerationOperation?.payload as { operations: Array<{ type: string }> }).operations[0].type).toBe('ENUMERATION_VALUE_CREATED');
     useDiagramStore.getState().addGeneralization(person.id, student.id);
-    expect(useDiagramStore.getState().diagram.enumerations[0].values[0].name).toBe('ACTIVO');
     expect(useDiagramStore.getState().diagram.generalizations[0]).toMatchObject({ parentId: person.id, childId: student.id });
   });
 
@@ -99,14 +122,15 @@ describe('diagram store', () => {
   });
 
   it('applies an XMI preview as one batch and undoes the complete import', () => {
-    const classId = crypto.randomUUID(); const enumerationId = crypto.randomUUID(); const packageId = crypto.randomUUID();
+    const classId = crypto.randomUUID(); const class2Id = crypto.randomUUID(); const packageId = crypto.randomUUID();
     useDiagramStore.getState().replaceFromImport({
       ...base(), name: 'Importado',
-      classes: [{ id: classId, kind: 'class', name: 'Pedido', position: { x: 10, y: 20 }, version: 1,
-        attributes: [{ id: crypto.randomUUID(), name: 'estado', type: 'Estado', primaryKey: false, required: true, unique: false, version: 1 }] }],
-      enumerations: [{ id: enumerationId, kind: 'enumeration', name: 'Estado', position: { x: 300, y: 20 }, version: 1,
-        values: [{ id: crypto.randomUUID(), name: 'NUEVO', version: 1 }] }],
-      packages: [{ id: packageId, name: 'Ventas', memberIds: [classId, enumerationId], version: 1 }],
+      classes: [
+        { id: classId, kind: 'class', name: 'Pedido', position: { x: 10, y: 20 }, version: 1,
+          attributes: [{ id: crypto.randomUUID(), name: 'total', type: 'Decimal', primaryKey: false, required: true, unique: false, version: 1 }] },
+        { id: class2Id, kind: 'class', name: 'Detalle', position: { x: 300, y: 20 }, version: 1, attributes: [] },
+      ],
+      packages: [{ id: packageId, name: 'Ventas', memberIds: [classId, class2Id], version: 1 }],
     });
 
     expect(useDiagramStore.getState().history).toHaveLength(1);
@@ -117,7 +141,6 @@ describe('diagram store', () => {
     useDiagramStore.getState().undo();
 
     expect(useDiagramStore.getState().diagram.classes).toHaveLength(0);
-    expect(useDiagramStore.getState().diagram.enumerations).toHaveLength(0);
     expect(useDiagramStore.getState().diagram.packages).toHaveLength(0);
   });
 

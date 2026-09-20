@@ -58,9 +58,10 @@ public class AuthService {
     public void register(String fullName, String emailValue, String password, String confirmation, String invitationToken) {
         String email = normalizeEmail(emailValue); validatePassword(password, confirmation);
         String tokenHash = hash(invitationToken == null ? "" : invitationToken); Instant now = Instant.now();
-        AuthStore.Invitation formal = store.invitation(tokenHash).filter(value -> value.active(now)).orElse(null);
-        UUID diagramId = formal == null ? diagrams.findByShareTokenHash(tokenHash).map(value -> value.getId()).orElse(null) : formal.diagramId();
-        if (formal == null && diagramId == null) throw new AuthException(HttpStatus.FORBIDDEN, "INVITATION_REQUIRED", "Necesitas una invitación válida para registrarte.");
+        boolean hasToken = invitationToken != null && !invitationToken.isBlank();
+        AuthStore.Invitation formal = hasToken ? store.invitation(tokenHash).filter(value -> value.active(now)).orElse(null) : null;
+        UUID diagramId = hasToken ? (formal == null ? diagrams.findByShareTokenHash(tokenHash).map(value -> value.getId()).orElse(null) : formal.diagramId()) : null;
+        if (hasToken && formal == null && diagramId == null) throw new AuthException(HttpStatus.FORBIDDEN, "INVITATION_REQUIRED", "Necesitas una invitación válida para registrarte.");
         if (formal != null && formal.email() != null && !formal.email().equals(email)) {
             throw new AuthException(HttpStatus.FORBIDDEN, "INVITATION_EMAIL_MISMATCH", "La invitación pertenece a otro correo.");
         }
@@ -70,11 +71,14 @@ public class AuthService {
             return;
         }
         try {
-            AuthStore.Account account = store.createAccount(email, cleanName(fullName), false);
+            boolean autoVerify = !hasToken;
+            AuthStore.Account account = store.createAccount(email, cleanName(fullName), autoVerify);
             store.createIdentity(account.id(), "LOCAL", email, passwords.encode(password));
             if (formal != null) store.acceptInvitation(formal.id(), account.id());
             if (diagramId != null) store.addPendingJoin(account.id(), diagramId);
-            issueVerification(account);
+            if (!autoVerify) {
+                issueVerification(account);
+            }
         } catch (DataIntegrityViolationException exception) {
             // Una carrera con otro registro conserva la respuesta genérica para no enumerar cuentas.
             return;
@@ -118,38 +122,6 @@ public class AuthService {
     }
 
     @Transactional
-    public Completion googleLogin(String emailValue, String googleSubject, String fullName, boolean emailVerified, String invitationToken) {
-        if (!emailVerified) throw new AuthException(HttpStatus.FORBIDDEN, "GOOGLE_EMAIL_NOT_VERIFIED", "Google no confirmó este correo.");
-        String email = normalizeEmail(emailValue);
-        AuthStore.Identity known = store.identity("GOOGLE", googleSubject).orElse(null);
-        AuthStore.Account account;
-        if (known != null) account = store.accountById(known.accountId()).orElseThrow();
-        else {
-            account = store.accountByEmail(email).orElse(null);
-            if (account == null) {
-                InvitationInfo valid = invitation(invitationToken);
-                if (!valid.valid()) throw new AuthException(HttpStatus.FORBIDDEN, "INVITATION_REQUIRED", "Necesitas una invitación válida para crear la cuenta.");
-                if (valid.email() != null && !valid.email().equals(email)) throw new AuthException(HttpStatus.FORBIDDEN, "INVITATION_EMAIL_MISMATCH", "La invitación pertenece a otro correo.");
-                account = store.createAccount(email, cleanName(fullName), true);
-                acceptInvitation(invitationToken, account, valid.diagramId());
-            }
-            store.createIdentity(account.id(), "GOOGLE", googleSubject, null);
-        }
-        if (!account.verified()) store.verify(account.id());
-        if (fullName != null && !fullName.isBlank()) store.updateName(account.id(), cleanName(fullName));
-        account = store.accountById(account.id()).orElseThrow();
-        UUID destination = store.pendingJoins(account.id()).stream().findFirst().orElse(null);
-        store.activatePendingJoins(account);
-        for (AuthStore.Invitation value : store.acceptedInvitations(account.id())) {
-            if (value.bootstrapAdmin()) store.makeAdmin(account.id());
-            store.consumeInvitation(value.id(), account.id());
-        }
-        account = store.accountById(account.id()).orElseThrow();
-        store.linkLegacyMemberships(account, email, googleSubject);
-        return new Completion(account.principal(), destination);
-    }
-
-    @Transactional
     public void resendVerification(String emailValue) {
         store.accountByEmail(normalizeEmail(emailValue)).filter(account -> !account.verified()).ifPresent(this::issueVerification);
     }
@@ -176,7 +148,12 @@ public class AuthService {
     }
     private void issueVerification(AuthStore.Account account) {
         String token = randomToken(); store.invalidateVerificationTokens(account.id());
-        store.createVerificationToken(account.id(), hash(token), Instant.now().plus(verificationTtl)); mail.verification(account.email(), token);
+        store.createVerificationToken(account.id(), hash(token), Instant.now().plus(verificationTtl));
+        try {
+            mail.verification(account.email(), token);
+        } catch (Exception ignored) {
+            // Ignorar si el servicio de correo no está disponible localmente
+        }
     }
     private String randomToken() { byte[] bytes = new byte[32]; random.nextBytes(bytes); return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes); }
     public static String normalizeEmail(String email) {

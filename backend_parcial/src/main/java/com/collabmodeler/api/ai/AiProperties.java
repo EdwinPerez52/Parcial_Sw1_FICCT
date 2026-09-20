@@ -9,6 +9,7 @@ public class AiProperties {
     private String apiKey = "";
     private String textModel = "gpt-4.1-mini";
     private String visionModel = "gpt-4.1-mini";
+    private String audioModel = "gpt-4o-mini-transcribe";
     private int proposalMinutes = 15;
     private int maxInstructionLength = 2000;
     public String getProvider() { return provider; } public void setProvider(String value) { provider = value; }
@@ -16,6 +17,7 @@ public class AiProperties {
     public String getApiKey() { return apiKey; } public void setApiKey(String value) { apiKey = value; }
     public String getTextModel() { return textModel; } public void setTextModel(String value) { textModel = value; }
     public String getVisionModel() { return visionModel; } public void setVisionModel(String value) { visionModel = value; }
+    public String getAudioModel() { return audioModel; } public void setAudioModel(String value) { audioModel = value; }
     public int getProposalMinutes() { return proposalMinutes; } public void setProposalMinutes(int value) { proposalMinutes = value; }
     public int getMaxInstructionLength() { return maxInstructionLength; } public void setMaxInstructionLength(int value) { maxInstructionLength = value; }
 }

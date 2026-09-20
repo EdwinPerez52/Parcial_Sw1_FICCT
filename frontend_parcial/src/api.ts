@@ -36,8 +36,8 @@ export interface InvitationInfo { valid: boolean; email: string | null; diagramI
 export const authApi = {
   me: async () => { const me = await raw<CurrentUser>('/api/v1/auth/me'); csrfToken = me.csrfToken; return me; },
   login: (email: string, password: string) => raw<CurrentUser>('/api/v1/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
-  register: (fullName: string, email: string, password: string, passwordConfirmation: string, invitationToken: string) =>
-    raw<{ message: string }>('/api/v1/auth/register', { method: 'POST', body: JSON.stringify({ fullName, email, password, passwordConfirmation, invitationToken }) }),
+  register: (fullName: string, email: string, password: string, passwordConfirmation: string, invitationToken?: string) =>
+    raw<{ message: string }>('/api/v1/auth/register', { method: 'POST', body: JSON.stringify({ fullName, email, password, passwordConfirmation, invitationToken: invitationToken || null }) }),
   invitation: (token: string) => raw<InvitationInfo>(`/api/v1/auth/invitations/${encodeURIComponent(token)}`),
   verify: (token: string) => raw<{ verified: boolean; diagramId?: string }>('/api/v1/auth/verify', { method: 'POST', body: JSON.stringify({ token }) }),
   resendVerification: (email: string) => raw<{ message: string }>('/api/v1/auth/verification/request', { method: 'POST', body: JSON.stringify({ email }) }),
@@ -61,7 +61,10 @@ export const diagramApi = {
   }),
   removeMember: (id: string, memberId: string) => raw<void>(`/api/v1/diagrams/${id}/members/${memberId}`, { method: 'DELETE' }),
   join: (token: string) => raw<{ diagramId: string }>(`/api/v1/join/${encodeURIComponent(token)}`, { method: 'POST' }),
-  generationUrl: (id: string) => `/api/v1/diagrams/${id}/generation?groupId=com.generated&artifactId=generated-api`,
+  generationUrl: (id: string, versionId?: string) =>
+    `/api/v1/diagrams/${id}/generation?groupId=com.generated&artifactId=generated-api${versionId ? `&versionId=${encodeURIComponent(versionId)}` : ''}`,
+  mobileSpecUrl: (id: string, versionId?: string) =>
+    `/api/v1/diagrams/${id}/mobile-spec${versionId ? `?versionId=${encodeURIComponent(versionId)}` : ''}`,
   xmiExportUrl: (id: string) => `/api/v1/diagrams/${id}/xmi`,
 };
 
@@ -83,6 +86,12 @@ export const assistantApi = {
   apply: (diagramId: string, proposalId: string, confirmed: boolean) => raw<AppliedAssistantProposal>(`/api/v1/diagrams/${diagramId}/assistant/proposals/${proposalId}/apply`, {
     method: 'POST', body: JSON.stringify({ confirmed }),
   }),
+  transcribe: async (diagramId: string, audio: Blob): Promise<string> => {
+    const form = new FormData();
+    const extension = audio.type.startsWith('audio/mp4') ? 'mp4' : audio.type.startsWith('audio/ogg') ? 'ogg' : 'webm';
+    form.append('file', audio, `voz.${extension}`);
+    return (await raw<{ text: string }>(`/api/v1/diagrams/${diagramId}/assistant/transcriptions`, { method: 'POST', body: form })).text;
+  },
 };
 
 export interface XmiWarning { code: string; message: string; externalId?: string; elementType?: string }
@@ -134,11 +143,12 @@ export interface ImageProposal {
   classes: Array<{ name: string; attributes: Array<{ name: string; type: string; primaryKey?: boolean; required?: boolean; unique?: boolean }> }>;
   associations: Array<{ source: string; target: string; sourceCardinality: '0..1' | '1' | '0..*' | '1..*'; targetCardinality: '0..1' | '1' | '0..*' | '1..*'; name?: string }>;
   warnings: string[];
+  confidence: number;
 }
 
-export async function analyzeDiagramImage(file: File): Promise<ImageProposal> {
+export async function analyzeDiagramImage(diagramId: string, file: File): Promise<ImageProposal> {
   const body = new FormData(); body.append('file', file);
-  return raw<ImageProposal>('/api/v1/ai/image-preview', { method: 'POST', body });
+  return raw<ImageProposal>(`/api/v1/diagrams/${diagramId}/image-preview`, { method: 'POST', body });
 }
 
 export interface PresenceParticipant {
@@ -183,9 +193,16 @@ export function subscribeToDiagram(id: string, handlers: {
   };
 }
 
-export async function downloadGeneratedBackend(id: string): Promise<void> {
-  const response = await fetch(diagramApi.generationUrl(id), { method: 'POST', credentials: 'include', headers: csrfToken ? { 'X-XSRF-TOKEN': csrfToken } : {} });
+export async function downloadGeneratedBackend(id: string, versionId?: string): Promise<void> {
+  const response = await fetch(diagramApi.generationUrl(id, versionId), { method: 'POST', credentials: 'include', headers: csrfToken ? { 'X-XSRF-TOKEN': csrfToken } : {} });
   if (!response.ok) throw new ApiError(response.status, `HTTP_${response.status}`, (await response.json().catch(() => ({}))).detail ?? 'No se pudo generar el backend');
   const href = URL.createObjectURL(await response.blob());
   const link = document.createElement('a'); link.href = href; link.download = 'generated-api.zip'; link.click(); URL.revokeObjectURL(href);
+}
+
+export async function downloadMobileSpec(id: string, versionId?: string): Promise<void> {
+  const response = await fetch(diagramApi.mobileSpecUrl(id, versionId), { method: 'GET', credentials: 'include', headers: csrfToken ? { 'X-XSRF-TOKEN': csrfToken } : {} });
+  if (!response.ok) throw new ApiError(response.status, `HTTP_${response.status}`, (await response.json().catch(() => ({}))).detail ?? 'No se pudo descargar modeler-mobile-spec.json');
+  const href = URL.createObjectURL(await response.blob());
+  const link = document.createElement('a'); link.href = href; link.download = 'modeler-mobile-spec.json'; link.click(); URL.revokeObjectURL(href);
 }

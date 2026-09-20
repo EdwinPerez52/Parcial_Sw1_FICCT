@@ -38,10 +38,18 @@ class AuthServiceTest {
         assertDoesNotThrow(() -> service.register("Ana", "ANA@example.com", "ClaveSegura1", "ClaveSegura1", "token"));
         verify(store, never()).createAccount(anyString(), anyString(), anyBoolean());
     }
-    @Test void googleLinksToTheExistingEmailAccount() {
-        UUID id = UUID.randomUUID(); var before = new AuthStore.Account(id, "ana@example.com", "Ana", true, false, 0, null); var after = new AuthStore.Account(id, "ana@example.com", "Ana Pérez", true, false, 0, null);
-        when(store.identity("GOOGLE", "google-subject")).thenReturn(Optional.empty()); when(store.accountByEmail("ana@example.com")).thenReturn(Optional.of(before)); when(store.accountById(id)).thenReturn(Optional.of(after)); when(store.pendingJoins(id)).thenReturn(java.util.List.of()); when(store.acceptedInvitations(id)).thenReturn(java.util.List.of());
-        AuthService.Completion completion = service.googleLogin("ANA@example.com", "google-subject", "Ana Pérez", true, null);
-        assertEquals(id, completion.principal().accountId()); verify(store).createIdentity(id, "GOOGLE", "google-subject", null); verify(store).linkLegacyMemberships(after, "ana@example.com", "google-subject");
+
+    @Test void directRegistrationCreatesVerifiedAccountAndIdentityWithoutInvitation() {
+        UUID id = UUID.randomUUID();
+        when(store.accountByEmail("carlos@example.com")).thenReturn(Optional.empty());
+        when(passwords.encode("ClaveSegura1")).thenReturn("encoded-secret");
+        when(store.createAccount("carlos@example.com", "Carlos Paz", true))
+            .thenReturn(new AuthStore.Account(id, "carlos@example.com", "Carlos Paz", true, false, 0, null));
+
+        assertDoesNotThrow(() -> service.register("Carlos Paz", "CARLOS@example.com", "ClaveSegura1", "ClaveSegura1", null));
+
+        verify(store).createAccount("carlos@example.com", "Carlos Paz", true);
+        verify(store).createIdentity(id, "LOCAL", "carlos@example.com", "encoded-secret");
     }
 }
+

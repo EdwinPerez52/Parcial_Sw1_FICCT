@@ -15,4 +15,16 @@ describe('parseAssistantCommand', () => {
   it('marca instrucciones desconocidas', () => {
     expect(parseAssistantCommand('haz algo')).toMatchObject({ type: 'unknown' });
   });
+
+  it('crear una clase Producto (wording alternativo)', () => {
+    expect(parseAssistantCommand('crear una clase Producto')).toEqual({ type: 'createClass', name: 'Producto' });
+  });
+
+  it('crea una clase producto (lowercase, preserva nombre)', () => {
+    expect(parseAssistantCommand('crea una clase producto')).toEqual({ type: 'createClass', name: 'producto' });
+  });
+
+  it('elimina la clase Producto', () => {
+    expect(parseAssistantCommand('elimina la clase Producto')).toEqual({ type: 'deleteClass', name: 'Producto' });
+  });
 });

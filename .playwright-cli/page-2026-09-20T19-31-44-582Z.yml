@@ -1,0 +1,17 @@
+- main [ref=e3]:
+  - generic [ref=e4]:
+    - generic [ref=e5]: CM
+    - paragraph [ref=e6]: Modelado colaborativo seguro
+    - heading "Diseña, valida y comparte tus modelos UML." [level=1] [ref=e7]
+    - paragraph [ref=e8]: Tu trabajo se guarda por revisiones y cada proyecto conserva sus permisos. No almacenamos credenciales ni tokens de sesión en el navegador.
+  - generic [ref=e9]:
+    - heading "Inicia sesión" [level=2] [ref=e10]
+    - generic [ref=e11]:
+      - generic [ref=e12]:
+        - text: Correo electrónico
+        - textbox "Correo electrónico" [ref=e13]
+      - generic [ref=e14]:
+        - text: Contraseña
+        - textbox "Contraseña" [ref=e15]
+      - button "Entrar" [ref=e16] [cursor=pointer]
+    - button "Olvidé mi contraseña" [ref=e20] [cursor=pointer]

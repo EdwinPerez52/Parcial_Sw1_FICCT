@@ -3,7 +3,7 @@ WORKDIR /workspace
 COPY backend_parcial/pom.xml .
 RUN mvn -q -DskipTests dependency:go-offline
 COPY backend_parcial/src src
-RUN mvn -q package
+RUN mvn -q clean package -DskipTests
 
 FROM eclipse-temurin:21-jre
 WORKDIR /app

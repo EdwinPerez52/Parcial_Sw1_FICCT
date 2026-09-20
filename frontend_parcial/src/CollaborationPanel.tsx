@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { Activity, CheckCircle2, MessageSquare, RotateCcw, Save, Send, Users } from 'lucide-react';
-import { ActivityItem, CommentItem, MemberItem, VersionItem, collaborationApi, diagramApi } from './api';
+import { Activity, CheckCircle2, Download, MessageSquare, RotateCcw, Save, Send, Users } from 'lucide-react';
+import { ActivityItem, CommentItem, MemberItem, VersionItem, collaborationApi, diagramApi, downloadGeneratedBackend, downloadMobileSpec } from './api';
 import { DiagramModel } from './domain';
 
 const messageOf = (cause: unknown) => cause instanceof Error ? cause.message : 'No se pudo completar la acción.';
@@ -14,7 +14,6 @@ export function CommentsPanel({ diagramId, diagram, role, eventSequence }: { dia
     { value: 'DIAGRAM:', label: 'Diagrama completo' },
     ...diagram.classes.flatMap(item => [{ value: `CLASS:${item.id}`, label: `Clase: ${item.name}` }, ...item.attributes.map(attribute => ({ value: `ATTRIBUTE:${attribute.id}`, label: `Atributo: ${item.name}.${attribute.name}` }))]),
     ...diagram.associations.map(item => ({ value: `ASSOCIATION:${item.id}`, label: `Asociación: ${item.name || item.id.slice(0, 8)}` })),
-    ...diagram.enumerations.map(item => ({ value: `ENUMERATION:${item.id}`, label: `Enumeración: ${item.name}` })),
     ...diagram.generalizations.map(item => ({ value: `GENERALIZATION:${item.id}`, label: `Generalización: ${item.id.slice(0, 8)}` })),
   ], [diagram]);
   const submit = async (event: FormEvent<HTMLFormElement>) => {
@@ -50,7 +49,7 @@ export function VersionsPanel({ diagramId, diagram, pendingCount, eventSequence,
   return <div className="versions-panel">{canEdit && <form className="version-form" onSubmit={createVersion}><input name="label" maxLength={180} placeholder="Nombre del hito" required /><button><Save size={14} /> Guardar hito</button></form>}
     {pendingCount > 0 && <p className="pending-note">Sincroniza o resuelve {pendingCount} cambio(s) antes de restaurar.</p>}{error && <div className="validation-message">{error}</div>}
     <div className="version-list">{versions.length === 0 && <p className="empty-copy">No hay hitos guardados.</p>}{versions.map(item => <button key={item.id} onClick={() => setPreview(item)}><strong>{item.label}</strong><span>Revisión {item.sourceRevision} · {item.authorName}</span><time>{new Date(item.createdAt).toLocaleString()}</time></button>)}</div>
-    {preview && <div className="modal-backdrop"><section className="proposal-modal"><h2>{canEdit ? 'Restaurar' : 'Vista previa de'} “{preview.label}”</h2><p>{canEdit ? 'Se creará una revisión nueva; no se borrará el historial anterior.' : 'Tu rol permite consultar este hito, pero no restaurarlo.'}</p><div className="snapshot-summary"><span>{preview.snapshot.classes.length} clases</span><span>{preview.snapshot.enumerations.length} enumeraciones</span><span>{preview.snapshot.associations.length} asociaciones</span><span>{preview.snapshot.generalizations.length} herencias</span></div><footer><button className="secondary" onClick={() => setPreview(undefined)}>Cerrar</button>{canEdit && <button className="primary" disabled={pendingCount > 0} onClick={() => void restore()}><RotateCcw size={15} /> Restaurar como nueva revisión</button>}</footer></section></div>}
+    {preview && <div className="modal-backdrop"><section className="proposal-modal"><h2>{canEdit ? 'Restaurar' : 'Vista previa de'} “{preview.label}”</h2><p>{canEdit ? 'Se creará una revisión nueva; no se borrará el historial anterior.' : 'Tu rol permite consultar este hito, pero no restaurarlo.'}</p><div className="snapshot-summary"><span>{preview.snapshot.classes.length} clases</span><span>{preview.snapshot.associations.length} asociaciones</span><span>{preview.snapshot.generalizations.length} herencias</span></div><footer><button type="button" className="secondary" onClick={() => setPreview(undefined)}>Cerrar</button><button type="button" className="secondary" onClick={() => void downloadGeneratedBackend(diagramId, preview.id)}><Download size={15} /> Descargar backend (ZIP)</button><button type="button" className="secondary" onClick={() => void downloadMobileSpec(diagramId, preview.id)}><Download size={15} /> Descargar spec móvil</button>{canEdit && <button className="primary" disabled={pendingCount > 0} onClick={() => void restore()}><RotateCcw size={15} /> Restaurar como nueva revisión</button>}</footer></section></div>}
   </div>;
 }
 
