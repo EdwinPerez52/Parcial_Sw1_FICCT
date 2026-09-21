@@ -37,12 +37,28 @@ public class MobileSpecService {
             spec.put("openapiHash", openapiHash);
             spec.put("openapiYaml", openapiYaml != null ? openapiYaml : "");
 
+            Map<UUID, UUID> childToParent = new HashMap<>();
+            Map<UUID, String> classNames = new HashMap<>();
+            for (var item : diagram.classes()) {
+                classNames.put(item.id(), item.name());
+            }
+            if (diagram.generalizations() != null) {
+                for (var g : diagram.generalizations()) {
+                    childToParent.put(g.childId(), g.parentId());
+                }
+            }
+
             List<Map<String, Object>> entities = new ArrayList<>();
             for (var item : diagram.classes()) {
                 Map<String, Object> entity = new LinkedHashMap<>();
                 entity.put("id", item.id().toString());
                 entity.put("name", item.name());
                 entity.put("tableName", sqlName(item.name()));
+                if (childToParent.containsKey(item.id())) {
+                    UUID pId = childToParent.get(item.id());
+                    entity.put("parentId", pId.toString());
+                    entity.put("parentName", classNames.get(pId));
+                }
                 List<Map<String, Object>> attributes = new ArrayList<>();
                 for (var attr : item.attributes()) {
                     Map<String, Object> a = new LinkedHashMap<>();
@@ -83,6 +99,18 @@ public class MobileSpecService {
             }
             spec.put("associations", associations);
 
+            List<Map<String, Object>> generalizations = new ArrayList<>();
+            if (diagram.generalizations() != null) {
+                for (var g : diagram.generalizations()) {
+                    Map<String, Object> gen = new LinkedHashMap<>();
+                    gen.put("id", g.id().toString());
+                    gen.put("parentId", g.parentId().toString());
+                    gen.put("childId", g.childId().toString());
+                    generalizations.add(gen);
+                }
+            }
+            spec.put("generalizations", generalizations);
+
             // Canonical JSON string of payload to sign
             String payloadToSign = mapper.writeValueAsString(spec);
             String signature = hmacSha256Hex(payloadToSign, signingKey);
@@ -92,6 +120,114 @@ public class MobileSpecService {
         } catch (Exception exception) {
             throw new IllegalStateException("No se pudo emitir modeler-mobile-spec.json", exception);
         }
+    }
+
+    /**
+     * Generates a spec JSON with a unique nonce for single-use by the local agent.
+     * The nonce is covered by the HMAC-SHA256 signature.
+     */
+    public String generateAgentSpecJson(DiagramDocument diagram, UUID versionId, String openapiYaml) {
+        try {
+            String openapiHash = sha256Hex(openapiYaml != null ? openapiYaml : "");
+            Map<String, Object> spec = new LinkedHashMap<>();
+            spec.put("specVersion", "1.0.0");
+            spec.put("diagramId", diagram.id().toString());
+            spec.put("versionId", versionId != null ? versionId.toString() : diagram.id().toString());
+            spec.put("revision", diagram.revision());
+            spec.put("diagramName", diagram.name());
+            spec.put("issuedAt", Instant.now().toString());
+            spec.put("nonce", UUID.randomUUID().toString());
+            spec.put("openapiFile", "openapi.yaml");
+            spec.put("openapiHash", openapiHash);
+            spec.put("openapiYaml", openapiYaml != null ? openapiYaml : "");
+
+            Map<UUID, UUID> childToParent = new HashMap<>();
+            Map<UUID, String> classNames = new HashMap<>();
+            for (var item : diagram.classes()) {
+                classNames.put(item.id(), item.name());
+            }
+            if (diagram.generalizations() != null) {
+                for (var g : diagram.generalizations()) {
+                    childToParent.put(g.childId(), g.parentId());
+                }
+            }
+
+            List<Map<String, Object>> entities = new ArrayList<>();
+            for (var item : diagram.classes()) {
+                Map<String, Object> entity = new LinkedHashMap<>();
+                entity.put("id", item.id().toString());
+                entity.put("name", item.name());
+                entity.put("tableName", sqlName(item.name()));
+                if (childToParent.containsKey(item.id())) {
+                    UUID pId = childToParent.get(item.id());
+                    entity.put("parentId", pId.toString());
+                    entity.put("parentName", classNames.get(pId));
+                }
+                List<Map<String, Object>> attributes = new ArrayList<>();
+                for (var attr : item.attributes()) {
+                    Map<String, Object> a = new LinkedHashMap<>();
+                    a.put("id", attr.id().toString());
+                    a.put("name", attr.name());
+                    a.put("type", attr.type());
+                    a.put("primaryKey", attr.primaryKey());
+                    a.put("required", attr.required());
+                    a.put("unique", attr.unique());
+                    attributes.add(a);
+                }
+                entity.put("attributes", attributes);
+                entities.add(entity);
+            }
+            spec.put("entities", entities);
+
+            List<Map<String, Object>> enums = new ArrayList<>();
+            for (var en : diagram.enumerations()) {
+                Map<String, Object> e = new LinkedHashMap<>();
+                e.put("id", en.id().toString());
+                e.put("name", en.name());
+                e.put("values", en.values().stream().map(DiagramDocument.EnumerationValue::name).toList());
+                enums.add(e);
+            }
+            spec.put("enumerations", enums);
+
+            List<Map<String, Object>> associations = new ArrayList<>();
+            for (var a : diagram.associations()) {
+                Map<String, Object> assoc = new LinkedHashMap<>();
+                assoc.put("id", a.id().toString());
+                assoc.put("sourceId", a.sourceId().toString());
+                assoc.put("targetId", a.targetId().toString());
+                assoc.put("sourceCardinality", a.sourceCardinality());
+                assoc.put("targetCardinality", a.targetCardinality());
+                assoc.put("name", a.name());
+                assoc.put("owningSide", a.owningSide());
+                associations.add(assoc);
+            }
+            spec.put("associations", associations);
+
+            List<Map<String, Object>> generalizations = new ArrayList<>();
+            if (diagram.generalizations() != null) {
+                for (var g : diagram.generalizations()) {
+                    Map<String, Object> gen = new LinkedHashMap<>();
+                    gen.put("id", g.id().toString());
+                    gen.put("parentId", g.parentId().toString());
+                    gen.put("childId", g.childId().toString());
+                    generalizations.add(gen);
+                }
+            }
+            spec.put("generalizations", generalizations);
+
+            String payloadToSign = mapper.writeValueAsString(spec);
+            String signature = hmacSha256Hex(payloadToSign, signingKey);
+            spec.put("signature", signature);
+
+            return mapper.writerWithDefaultPrettyPrinter().writeValueAsString(spec);
+        } catch (Exception exception) {
+            throw new IllegalStateException("No se pudo emitir modeler-mobile-spec.json con nonce", exception);
+        }
+    }
+
+    /** Returns the signing key so the agent-spec endpoint can include it for local agent verification. */
+    public String getSigningKey() {
+        return signingKey;
     }
 
     public boolean verifySignature(Map<String, Object> spec) {

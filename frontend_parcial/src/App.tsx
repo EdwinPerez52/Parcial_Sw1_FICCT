@@ -1,11 +1,11 @@
 import { FormEvent, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Background, Connection, Controls, Edge, MarkerType, MiniMap, Node, ReactFlow } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { Bot, Camera, CheckSquare, Cloud, Download, FileUp, History, ListTree, LogOut, MessageSquare, Mic, Plus, Redo2, Share2, Trash2, Undo2, Users, XCircle } from 'lucide-react';
+import { AlertCircle, Bot, Camera, CheckCircle2, CheckSquare, Cloud, Download, FileUp, History, ListTree, Loader2, LogOut, MessageSquare, Mic, Monitor, Play, Plus, Redo2, Share2, Smartphone, Sparkles, Trash2, Undo2, Users, Wifi, X, XCircle } from 'lucide-react';
 import { ClassNode } from './ClassNode';
 import { PropertyPanel } from './PropertyPanel';
 import { useDiagramStore } from './store';
-import { AssistantProposal, ImageProposal, XmiImportPreview, analyzeDiagramImage, assistantApi, diagramApi, downloadGeneratedBackend, downloadMobileSpec, downloadXmi, previewXmi } from './api';
+import { AgentDevice, AgentSseEvent, AgentStatus, ApiError, AssistantProposal, ImageProposal, XmiImportPreview, agentApi, analyzeDiagramImage, assistantApi, diagramApi, downloadGeneratedBackend, downloadGeneratedFlutter, downloadMobileSpec, downloadXmi, previewXmi } from './api';
 import { SpeechSession, SpeechStatus } from './speech';
 import { buildImageImport, optimizeImageForAnalysis } from './imageImport';
 import { cardinalities, scalarTypes } from './domain';
@@ -88,6 +88,28 @@ export default function App({ projectId, userName, role, onBack, onLogout }: { p
   const [analyzingImage, setAnalyzingImage] = useState(false);
   const [xmiPreview, setXmiPreview] = useState<XmiImportPreview>();
   const [analyzingXmi, setAnalyzingXmi] = useState(false);
+  const [generatingBackend, setGeneratingBackend] = useState(false);
+  const [generatingSpec, setGeneratingSpec] = useState(false);
+  const [generatingFlutter, setGeneratingFlutter] = useState(false);
+  const [agentModalOpen, setAgentModalOpen] = useState(false);
+  const [agentStatus, setAgentStatus] = useState<AgentStatus | null>(null);
+  const [agentPhase, setAgentPhase] = useState<'checking' | 'fetching' | 'generating' | 'ready' | 'running' | 'done' | 'error'>('checking');
+  const [agentProgress, setAgentProgress] = useState<string[]>([]);
+  const [agentDevices, setAgentDevices] = useState<AgentDevice[]>([]);
+  const [agentOutputDir, setAgentOutputDir] = useState<string>('');
+  const [agentError, setAgentError] = useState<string>('');
+  const [agentSelectedDevice, setAgentSelectedDevice] = useState<string>('');
+  const [agentApiUrl, setAgentApiUrl] = useState<string>('http://localhost:8080');
+  const agentStreamRef = useRef<{ close: () => void } | null>(null);
+  const [generationFeedback, setGenerationFeedback] = useState<{
+    type: 'success' | 'error' | 'info';
+    title: string;
+    message: string;
+    downloadUrl?: string;
+    downloadName?: string;
+    elementId?: string;
+    canAutoFixPk?: boolean;
+  } | null>(null);
   const imageInput = useRef<HTMLInputElement>(null);
   const xmiInput = useRef<HTMLInputElement>(null);
   const lastCursorSent = useRef(0);
@@ -144,15 +166,239 @@ export default function App({ projectId, userName, role, onBack, onLogout }: { p
   };
 
   const generate = async () => {
-    if (!diagramId) return;
-    try { await downloadGeneratedBackend(diagramId); setAssistantMessage('Backend generado desde la versión inmutable.'); }
-    catch (cause) { setAssistantMessage(cause instanceof Error ? cause.message : 'No se pudo generar el backend.'); }
+    if (!diagramId || generatingBackend) return;
+    setGeneratingBackend(true);
+    setGenerationFeedback(null);
+    try {
+      const filename = await downloadGeneratedBackend(diagramId);
+      setGenerationFeedback({
+        type: 'success',
+        title: 'Backend generado',
+        message: `El archivo ZIP del backend Spring Boot se descargó exitosamente (${filename}).`,
+        downloadUrl: diagramApi.generationUrl(diagramId),
+        downloadName: filename,
+      });
+      setAssistantMessage(`Backend generado: ${filename}`);
+      setTimeout(() => setGenerationFeedback(prev => prev?.type === 'success' ? null : prev), 8000);
+    } catch (cause) {
+      const err = cause instanceof ApiError ? cause : new ApiError(0, 'UNKNOWN', cause instanceof Error ? cause.message : 'No se pudo generar el backend');
+      const elementId = (err.details?.elementId as string | undefined);
+      const isPkError = err.code === 'INVALID_PRIMARY_KEY' || err.message.toLowerCase().includes('clave primaria');
+
+      if (elementId) {
+        selectElements([elementId]);
+        setPanel('properties');
+      }
+
+      setGenerationFeedback({
+        type: 'error',
+        title: 'Error al generar backend',
+        message: err.message,
+        elementId,
+        canAutoFixPk: isPkError,
+      });
+      setAssistantMessage(`Error: ${err.message}`);
+    } finally {
+      setGeneratingBackend(false);
+    }
   };
 
+  const autoFixMissingPks = useCallback(() => {
+    const childIds = new Set(diagram.generalizations.map(g => g.childId));
+    let fixedCount = 0;
+    for (const cls of diagram.classes) {
+      if (childIds.has(cls.id)) continue;
+      const hasPk = cls.attributes.some(a => a.primaryKey);
+      if (!hasPk) {
+        const candidate = cls.attributes.find(a => /^(id|codigo|code|ci|nro|nroe|identificador)$/i.test(a.name));
+        if (candidate) {
+          useDiagramStore.getState().updateAttribute(cls.id, {
+            ...candidate,
+            primaryKey: true,
+            required: true,
+          });
+          fixedCount++;
+        } else {
+          useDiagramStore.getState().addAttribute(cls.id, {
+            name: 'id',
+            type: 'Integer',
+            primaryKey: true,
+            required: true,
+            unique: true,
+          });
+          fixedCount++;
+        }
+      }
+    }
+    setGenerationFeedback({
+      type: 'info',
+      title: 'Claves primarias asignadas',
+      message: `Se actualizaron ${fixedCount} clase(s) con su clave primaria. Reintentando generación…`,
+    });
+    setTimeout(() => {
+      void generate();
+    }, 400);
+  }, [diagram, diagramId]);
+
   const generateSpec = async () => {
+    if (!diagramId || generatingSpec) return;
+    setGeneratingSpec(true);
+    setGenerationFeedback(null);
+    try {
+      const filename = await downloadMobileSpec(diagramId);
+      setGenerationFeedback({
+        type: 'success',
+        title: 'Especificación móvil descargada',
+        message: `El archivo ${filename} firmado se descargó exitosamente.`,
+        downloadUrl: diagramApi.mobileSpecUrl(diagramId),
+        downloadName: filename,
+      });
+      setAssistantMessage(`Especificación descargada: ${filename}`);
+      setTimeout(() => setGenerationFeedback(prev => prev?.type === 'success' ? null : prev), 8000);
+    } catch (cause) {
+      const err = cause instanceof ApiError ? cause : new ApiError(0, 'UNKNOWN', cause instanceof Error ? cause.message : 'No se pudo descargar la especificación móvil');
+      setGenerationFeedback({
+        type: 'error',
+        title: 'Error al descargar especificación',
+        message: err.message,
+      });
+      setAssistantMessage(`Error: ${err.message}`);
+    } finally {
+      setGeneratingSpec(false);
+    }
+  };
+
+  const generateFlutter = async () => {
+    if (!diagramId || generatingFlutter) return;
+    setGeneratingFlutter(true);
+    setGenerationFeedback(null);
+    try {
+      const filename = await downloadGeneratedFlutter(diagramId, undefined, diagram.name);
+      setGenerationFeedback({
+        type: 'success',
+        title: 'App Flutter generada',
+        message: `El proyecto Flutter completo se descargó exitosamente (${filename}).`,
+        downloadUrl: diagramApi.flutterGenerationUrl(diagramId),
+        downloadName: filename,
+      });
+      setAssistantMessage(`Proyecto Flutter generado: ${filename}`);
+      setTimeout(() => setGenerationFeedback(prev => prev?.type === 'success' ? null : prev), 8000);
+    } catch (cause) {
+      const err = cause instanceof ApiError ? cause : new ApiError(0, 'UNKNOWN', cause instanceof Error ? cause.message : 'No se pudo generar la app Flutter');
+      const elementId = (err.details?.elementId as string | undefined);
+      const isPkError = err.code === 'INVALID_PRIMARY_KEY' || err.message.toLowerCase().includes('clave primaria');
+
+      if (elementId) {
+        selectElements([elementId]);
+        setPanel('properties');
+      }
+
+      setGenerationFeedback({
+        type: 'error',
+        title: 'Error al generar app Flutter',
+        message: err.message,
+        elementId,
+        canAutoFixPk: isPkError,
+      });
+      setAssistantMessage(`Error: ${err.message}`);
+    } finally {
+      setGeneratingFlutter(false);
+    }
+  };
+
+  // =========================================================================
+  // Agent modal — live Flutter generation and device execution
+  // =========================================================================
+  const openAgentModal = async () => {
     if (!diagramId) return;
-    try { await downloadMobileSpec(diagramId); setAssistantMessage('modeler-mobile-spec.json firmado descargado.'); }
-    catch (cause) { setAssistantMessage(cause instanceof Error ? cause.message : 'No se pudo descargar la especificación móvil.'); }
+    setAgentModalOpen(true);
+    setAgentPhase('checking');
+    setAgentProgress([]);
+    setAgentError('');
+    setAgentOutputDir('');
+    setAgentDevices([]);
+    setAgentSelectedDevice('');
+
+    try {
+      const status = await agentApi.checkStatus();
+      setAgentStatus(status);
+      setAgentDevices(status.devices);
+      if (status.devices.length > 0) setAgentSelectedDevice(status.devices[0].id);
+
+      if (!status.flutterAvailable) {
+        setAgentError('Flutter SDK no encontrado. Instálalo y agrega flutter a PATH.');
+        setAgentPhase('error');
+        return;
+      }
+
+      setAgentPhase('fetching');
+      setAgentProgress(prev => [...prev, '✓ Agente local activo']);
+      setAgentProgress(prev => [...prev, `Flutter ${status.flutterVersion || 'disponible'}`]);
+      if (status.adbAvailable) setAgentProgress(prev => [...prev, `ADB ${status.adbVersion || 'disponible'}`]);
+
+      // Fetch agent-spec bundle from backend
+      const bundle = await agentApi.fetchAgentSpec(diagramId);
+      setAgentProgress(prev => [...prev, '✓ Especificación firmada obtenida del backend']);
+
+      // Send to agent for generation
+      setAgentPhase('generating');
+      const stream = agentApi.generate(bundle);
+      agentStreamRef.current = stream;
+
+      stream.onEvent((event: AgentSseEvent) => {
+        if (event.type === 'progress') {
+          const msg = (event.data.message as string) || JSON.stringify(event.data);
+          setAgentProgress(prev => [...prev, msg]);
+          if (event.data.outputDir) setAgentOutputDir(event.data.outputDir as string);
+        } else if (event.type === 'devices') {
+          const devs = (event.data.devices as AgentDevice[]) || [];
+          setAgentDevices(devs);
+          if (devs.length > 0 && !agentSelectedDevice) setAgentSelectedDevice(devs[0].id);
+        } else if (event.type === 'output') {
+          const text = (event.data.data as string) || '';
+          if (text.trim()) setAgentProgress(prev => [...prev, text.trim().slice(0, 200)]);
+        } else if (event.type === 'done') {
+          setAgentPhase('ready');
+          setAgentOutputDir((event.data.outputDir as string) || agentOutputDir);
+          setAgentProgress(prev => [...prev, '✓ Proyecto Flutter generado exitosamente']);
+        } else if (event.type === 'error') {
+          setAgentPhase('error');
+          setAgentError((event.data.message as string) || 'Error desconocido');
+        }
+      });
+    } catch (cause) {
+      setAgentPhase('error');
+      setAgentError(cause instanceof Error ? cause.message : 'No se pudo conectar con el agente local');
+    }
+  };
+
+  const agentRunOnDevice = (action: 'flutter-run' | 'flutter-build-apk') => {
+    if (!agentOutputDir) return;
+    setAgentPhase('running');
+    setAgentProgress(prev => [...prev, `--- Ejecutando ${action} ---`]);
+
+    const stream = agentApi.run(agentOutputDir, action, agentSelectedDevice || undefined, agentApiUrl);
+    agentStreamRef.current = stream;
+
+    stream.onEvent((event: AgentSseEvent) => {
+      if (event.type === 'progress' || event.type === 'output') {
+        const msg = (event.data.message as string) || (event.data.data as string) || '';
+        if (msg.trim()) setAgentProgress(prev => [...prev, msg.trim().slice(0, 300)]);
+      } else if (event.type === 'done') {
+        setAgentPhase('done');
+        const code = event.data.exitCode as number;
+        setAgentProgress(prev => [...prev, code === 0 ? '✓ Ejecución completada exitosamente' : `✗ Proceso terminó con código ${code}`]);
+      } else if (event.type === 'error') {
+        setAgentPhase('error');
+        setAgentError((event.data.message as string) || 'Error de ejecución');
+      }
+    });
+  };
+
+  const closeAgentModal = () => {
+    agentStreamRef.current?.close();
+    agentStreamRef.current = null;
+    setAgentModalOpen(false);
   };
 
   const inspectImage = async (file?: File) => {
@@ -318,11 +564,57 @@ export default function App({ projectId, userName, role, onBack, onLogout }: { p
             title={pendingOperations.some(value => value.status !== 'acknowledged') ? 'Espera a que terminen de sincronizarse los cambios' : 'Exportar XMI 2.1'}>
             <Download size={16} /> Exportar XMI
           </button>
-          <button className="primary" onClick={generate} disabled={!diagramId}>Generar backend</button>
-          <button className="secondary" onClick={generateSpec} disabled={!diagramId} title="Descargar modeler-mobile-spec.json firmado para Flutter"><Download size={16} /> Spec móvil</button>
+          <button className="primary" onClick={generate} disabled={!diagramId || generatingBackend}>
+            {generatingBackend ? <><Loader2 size={16} className="spinning" /> Generando backend…</> : 'Generar backend'}
+          </button>
+          <button className="secondary" onClick={generateSpec} disabled={!diagramId || generatingSpec} title="Descargar modeler-mobile-spec.json firmado para Flutter">
+            {generatingSpec ? <><Loader2 size={16} className="spinning" /> Descargando…</> : <><Download size={16} /> Spec móvil</>}
+          </button>
+          <button className="secondary" onClick={generateFlutter} disabled={!diagramId || generatingFlutter} title="Generar y descargar aplicación Flutter (ZIP)">
+            {generatingFlutter ? <><Loader2 size={16} className="spinning" /> Generando Flutter…</> : <><Smartphone size={16} /> App Flutter (ZIP)</>}
+          </button>
+          <button className="primary agent-button" onClick={openAgentModal} disabled={!diagramId} title="Generar Flutter en vivo y ejecutar en dispositivo móvil">
+            <Monitor size={16} /> Generar App Móvil
+          </button>
           <button className="icon-button" onClick={onLogout} title="Cerrar sesión"><LogOut size={18} /></button>
         </div>
       </header>
+
+      {generationFeedback && (
+        <div className={`app-notification ${generationFeedback.type}`} role="alert">
+          <div className="notification-icon">
+            {generationFeedback.type === 'error' && <AlertCircle size={20} />}
+            {generationFeedback.type === 'success' && <CheckCircle2 size={20} />}
+            {generationFeedback.type === 'info' && <Loader2 size={20} className="spinning" />}
+          </div>
+          <div className="notification-body">
+            <strong>{generationFeedback.title}</strong>
+            <p>{generationFeedback.message}</p>
+            {generationFeedback.type === 'success' && generationFeedback.downloadUrl && (
+              <div className="notification-actions">
+                <a
+                  href={generationFeedback.downloadUrl}
+                  download={generationFeedback.downloadName || 'generated-api.zip'}
+                  className="action-pill secondary"
+                  style={{ textDecoration: 'none' }}
+                >
+                  <Download size={14} /> Descargar archivo de nuevo ({generationFeedback.downloadName || 'ZIP'})
+                </a>
+              </div>
+            )}
+            {generationFeedback.canAutoFixPk && (
+              <div className="notification-actions">
+                <button type="button" className="action-pill primary" onClick={autoFixMissingPks}>
+                  <Sparkles size={14} /> Asignar Claves Primarias (PK) automáticamente y reintentar
+                </button>
+              </div>
+            )}
+          </div>
+          <button type="button" className="notification-close" onClick={() => setGenerationFeedback(null)} aria-label="Cerrar aviso">
+            <X size={16} />
+          </button>
+        </div>
+      )}
 
       {canEdit && <aside className="toolbar">
         <button title="Nueva clase" onClick={() => { try { addClass(); } catch (cause) { setAssistantMessage(String(cause)); } }}><Plus /></button>
@@ -462,6 +754,66 @@ export default function App({ projectId, userName, role, onBack, onLogout }: { p
           </div>
           {xmiPreview.warnings.length > 0 && <section className="xmi-warnings"><h3>Advertencias ({xmiPreview.warnings.length})</h3>{xmiPreview.warnings.map((warning, index) => <p className="warning" key={`${warning.code}-${warning.externalId ?? index}`}><strong>{warning.code}</strong> · {warning.message}</p>)}</section>}
           <footer><button className="secondary" onClick={() => setXmiPreview(undefined)}>Cancelar</button><button className="primary" onClick={acceptXmi}>Confirmar importación</button></footer>
+        </section>
+      </div>}
+
+      {agentModalOpen && <div className="modal-backdrop">
+        <section className="proposal-modal agent-modal" role="dialog" aria-modal="true" aria-labelledby="agent-modal-title">
+          <header className="agent-modal-header">
+            <h2 id="agent-modal-title"><Monitor size={20} /> Generar App Móvil en Vivo</h2>
+            <button className="icon-button" onClick={closeAgentModal}><X size={18} /></button>
+          </header>
+
+          <div className="agent-modal-body">
+            {/* Progress log */}
+            <div className="agent-log" aria-live="polite">
+              {agentProgress.map((msg, i) => (
+                <div key={i} className={`agent-log-line ${msg.startsWith('✓') ? 'success' : msg.startsWith('✗') ? 'error' : msg.startsWith('---') ? 'separator' : ''}`}>{msg}</div>
+              ))}
+              {(agentPhase === 'checking' || agentPhase === 'fetching' || agentPhase === 'generating' || agentPhase === 'running') && (
+                <div className="agent-log-line loading"><Loader2 size={14} className="spinning" /> {agentPhase === 'checking' ? 'Verificando agente local…' : agentPhase === 'fetching' ? 'Obteniendo especificación del backend…' : agentPhase === 'generating' ? 'Generando proyecto Flutter…' : 'Ejecutando en dispositivo…'}</div>
+              )}
+            </div>
+
+            {agentError && <div className="agent-error"><AlertCircle size={16} /> {agentError}</div>}
+
+            {/* SDK status summary */}
+            {agentStatus && <div className="agent-sdk-status">
+              <span className={agentStatus.flutterAvailable ? 'ok' : 'missing'}>Flutter {agentStatus.flutterVersion || (agentStatus.flutterAvailable ? '✓' : '✗')}</span>
+              <span className={agentStatus.adbAvailable ? 'ok' : 'missing'}>ADB {agentStatus.adbVersion || (agentStatus.adbAvailable ? '✓' : '✗')}</span>
+              <span>{agentDevices.length} dispositivo(s)</span>
+            </div>}
+
+            {/* Device selection + run controls — visible when generation is ready, running, or done */}
+            {(agentPhase === 'ready' || agentPhase === 'running' || agentPhase === 'done') && <div className="agent-controls">
+              <div className="agent-field">
+                <label htmlFor="agent-device">Dispositivo:</label>
+                <select id="agent-device" value={agentSelectedDevice} onChange={e => setAgentSelectedDevice(e.target.value)}>
+                  {agentDevices.length === 0 && <option value="">Ningún dispositivo conectado</option>}
+                  {agentDevices.map(d => <option key={d.id} value={d.id}>{d.name} ({d.id}) — {d.status}</option>)}
+                  <option value="chrome">Chrome (web)</option>
+                </select>
+              </div>
+              <div className="agent-field">
+                <label htmlFor="agent-api-url"><Wifi size={14} /> API URL:</label>
+                <input id="agent-api-url" type="text" value={agentApiUrl} onChange={e => setAgentApiUrl(e.target.value)} placeholder="http://localhost:8080" />
+                <small>USB: usa localhost:8080 (adb reverse automático). Wi-Fi: usa la IP de tu PC.</small>
+              </div>
+              <div className="agent-actions">
+                <button className="primary" onClick={() => agentRunOnDevice('flutter-run')} disabled={agentPhase === 'running' || !agentSelectedDevice}>
+                  <Play size={16} /> Ejecutar en dispositivo
+                </button>
+                <button className="secondary" onClick={() => agentRunOnDevice('flutter-build-apk')} disabled={agentPhase === 'running'}>
+                  <Download size={16} /> Compilar APK release
+                </button>
+              </div>
+              {agentOutputDir && <p className="agent-output-path">Proyecto generado en: <code>{agentOutputDir}</code></p>}
+            </div>}
+          </div>
+
+          <footer>
+            <button className="secondary" onClick={closeAgentModal}>Cerrar</button>
+          </footer>
         </section>
       </div>}
     </main>

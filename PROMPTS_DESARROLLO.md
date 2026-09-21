@@ -176,7 +176,7 @@ Implementa creación, modificación, relaciones, enumeraciones, herencia, movimi
 Criterio de aceptación: instrucciones equivalentes manuales y textuales producen las mismas operaciones; una respuesta inválida del proveedor no modifica el diagrama.
 ```
 
-## 14. Voz e imágenes
+--## 14. Voz e imágenes
 
 ```text
 Objetivo: completar las entradas por voz y fotografías sin comprometer la integridad del modelo.
@@ -188,7 +188,7 @@ Mejora la vista previa para permitir corregir clases, atributos y relaciones ant
 Criterio de aceptación: voz y texto equivalentes producen el mismo resultado; una fotografía nunca modifica el modelo antes de la confirmación y la importación completa puede deshacerse en una acción.
 ```
 
-## 15. Generador Spring Boot completo
+--## 15. Generador Spring Boot completo
 
 ```text
 Objetivo: generar un backend Spring Boot ejecutable y trazable desde un hito inmutable.
@@ -204,7 +204,7 @@ Genera desde una versión guardada, no desde un documento mutable sin identifica
 Criterio de aceptación: los backends de modelos de ventas, colegio y salud compilan, ejecutan sus pruebas, autentican usuarios, publican OpenAPI y permiten consumir todos sus CRUD contra PostgreSQL mediante Testcontainers.
 ```
 
-## 16. Plantilla y generador Flutter local para Android y Multiplataforma
+--## 16. Plantilla y generador Flutter local para Android y Multiplataforma
 
 ```text
 Objetivo: crear la plantilla y el generador Flutter que producirá en tiempo de presentación la aplicación móvil/multiplataforma desde modeler-mobile-spec.json y el contrato OpenAPI del backend generado.
@@ -230,7 +230,7 @@ Configura la URL de API por defecto a http://localhost:8080 (--dart-define=API_B
 Criterio de aceptación: desde la web se inicia la generación en vivo ligada a una revisión; el agente crea el proyecto Flutter en segundos, ejecuta o instala la aplicación en el dispositivo móvil y la app consume exitosamente el backend generado en localhost:8080.
 ```
 
-## 18. Flutter offline-first y sincronización bidireccional
+--## 18. Flutter offline-first y sincronización bidireccional
 
 ```text
 Objetivo: permitir que la aplicación Flutter generada siga funcionando sin conexión sin perder modificaciones.

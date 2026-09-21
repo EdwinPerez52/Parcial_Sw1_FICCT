@@ -2,6 +2,7 @@ package com.collabmodeler.api.support;
 
 import com.collabmodeler.api.ai.AiUnavailableException;
 import com.collabmodeler.api.auth.AuthException;
+import com.collabmodeler.api.generation.ModelValidationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.security.access.AccessDeniedException;
@@ -11,6 +12,16 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
+    @ExceptionHandler(ModelValidationException.class)
+    ProblemDetail modelValidation(ModelValidationException exception) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, exception.getMessage());
+        problem.setTitle("Validación de modelo");
+        problem.setProperty("code", exception.getCode());
+        if (exception.getElementId() != null) {
+            problem.setProperty("elementId", exception.getElementId().toString());
+        }
+        return problem;
+    }
     @ExceptionHandler(AuthException.class)
     ProblemDetail authentication(AuthException exception) {
         ProblemDetail problem = ProblemDetail.forStatusAndDetail(exception.status(), exception.getMessage());

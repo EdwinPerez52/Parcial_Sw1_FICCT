@@ -1,0 +1,30 @@
+class AppStrings {
+  static const String appName = 'Ventas';
+  static const String login = 'Iniciar sesión';
+  static const String register = 'Registrarse';
+  static const String logout = 'Cerrar sesión';
+  static const String email = 'Correo electrónico';
+  static const String password = 'Contraseña';
+  static const String fullName = 'Nombre completo';
+  static const String save = 'Guardar';
+  static const String cancel = 'Cancelar';
+  static const String delete = 'Eliminar';
+  static const String edit = 'Editar';
+  static const String search = 'Buscar...';
+  static const String details = 'Detalles';
+  static const String create = 'Crear';
+  static const String retry = 'Reintentar';
+  static const String empty = 'No se encontraron registros';
+  static const String loading = 'Cargando datos...';
+  static const String serverSettings = 'Configuración del servidor';
+  static const String serverUrl = 'URL de la API';
+  static const String testConnection = 'Probar conexión';
+  static const String connectionSuccess = 'Conexión exitosa con el backend';
+  static const String connectionFailed = 'No se pudo conectar con el servidor';
+  static const String confirmDeleteTitle = '¿Eliminar registro?';
+  static const String confirmDeleteMessage = 'Esta acción no se puede deshacer. ¿Deseas continuar?';
+  static const String fieldRequired = 'Este campo es obligatorio';
+  static const String invalidNumber = 'Ingresa un número válido';
+  static const String savedSuccess = 'Guardado exitosamente';
+  static const String deletedSuccess = 'Eliminado exitosamente';
+}

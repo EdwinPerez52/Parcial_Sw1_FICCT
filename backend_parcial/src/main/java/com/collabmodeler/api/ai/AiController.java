@@ -7,6 +7,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.security.Principal;
+import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -25,6 +26,27 @@ public class AiController {
         AccessController.requireVerified(principal);
         access.requireEditor(diagramId, AccessController.subject(principal));
         return inspect(file);
+    }
+
+    @PostMapping(value = "/ai/mobile-analyze", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public Map<String, Object> mobileAnalyze(
+        @RequestPart(value = "file", required = false) MultipartFile file,
+        @RequestParam(value = "prompt", required = false) String prompt,
+        Principal principal
+    ) throws IOException {
+        AccessController.requireVerified(principal);
+        if (file != null && !file.isEmpty()) {
+            if (file.getSize() > ImageInspection.MAX_BYTES) {
+                throw new IllegalArgumentException("La imagen debe pesar entre 1 byte y 10 MB");
+            }
+            byte[] bytes = file.getBytes();
+            ImageInspection.Result inspected = ImageInspection.inspect(bytes);
+            return ai.analyzeMobileImage(bytes, inspected.mime(), prompt);
+        }
+        if (prompt != null && !prompt.isBlank()) {
+            return ai.analyzeMobilePrompt(prompt);
+        }
+        throw new IllegalArgumentException("Se requiere una imagen o un comando de texto");
     }
 
     private JsonNode inspect(MultipartFile file) throws IOException {

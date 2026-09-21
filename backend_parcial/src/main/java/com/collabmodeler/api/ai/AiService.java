@@ -21,6 +21,27 @@ public class AiService {
         String dataUrl = "data:" + contentType + ";base64," + Base64.getEncoder().encodeToString(image);
         return ImageProposalValidator.validate(chat(properties.getVisionModel(), List.of(Map.of("role", "user", "content", List.of(Map.of("type", "text", "text", prompt), Map.of("type", "image_url", "image_url", Map.of("url", dataUrl)))))));
     }
+
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> analyzeMobileImage(byte[] image, String contentType, String contextPrompt) {
+        String prompt = "Extrae los datos de la imagen o comprobante como una propuesta CRUD estructurada. " +
+            "Responde exactamente en JSON: {action:'create|update|delete|search', entity:'NombreEntidad', data:{clave:valor}, confidence:0.95}. " +
+            "No inventes datos ni generes SQL o código. " +
+            (contextPrompt != null && !contextPrompt.isBlank() ? " Contexto adicional del usuario: " + contextPrompt : "");
+        String dataUrl = "data:" + contentType + ";base64," + Base64.getEncoder().encodeToString(image);
+        JsonNode node = chat(properties.getVisionModel(), List.of(Map.of("role", "user", "content", List.of(Map.of("type", "text", "text", prompt), Map.of("type", "image_url", "image_url", Map.of("url", dataUrl))))));
+        return mapper.convertValue(node, Map.class);
+    }
+
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> analyzeMobilePrompt(String userPrompt) {
+        String systemPrompt = "Interpreta el comando del usuario para datos de una app móvil y responde en JSON: " +
+            "{action:'create|update|delete|search', entity:'NombreEntidad', data:{clave:valor}, confidence:0.95}. " +
+            "No generes SQL ni código ejecutable.";
+        String model = properties.getTextModel() != null && !properties.getTextModel().isBlank() ? properties.getTextModel() : properties.getVisionModel();
+        JsonNode node = chat(model, List.of(Map.of("role", "system", "content", systemPrompt), Map.of("role", "user", "content", userPrompt)));
+        return mapper.convertValue(node, Map.class);
+    }
     private JsonNode chat(String model, List<Map<String, Object>> messages) {
         if (properties.getApiKey() == null || properties.getApiKey().isBlank()) throw new AiUnavailableException("Configura AI_API_KEY para usar el proveedor de IA");
 

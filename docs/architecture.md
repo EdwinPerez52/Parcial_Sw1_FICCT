@@ -86,5 +86,80 @@ Flyway es la única fuente del esquema y Hibernate usa `ddl-auto=validate`. Las 
 - XMI conserva el modelo semántico, no el diseño propietario de Enterprise Architect.
 - La vista previa XMI es de solo lectura. La confirmación se traduce en un único `BATCH` del mismo flujo colaborativo; no existe una escritura lateral que evite revisiones, autorización, conflictos o deshacer.
 - La regeneración produce un ZIP nuevo y no mezcla código editado manualmente.
-- La aplicación Flutter y su generador se implementan en los incrementos 16–19; aún no existe una aplicación Flutter en este repositorio a la que conectar estas entradas.
+- La aplicación Flutter (`mobile_parcial`) y su generador (`FlutterGenerator`) implementan soporte completo para generación desde diagramas, autenticación con persistencia de tokens, almacenamiento offline SQLite, cola transaccional (outbox) y sincronización bidireccional con resolución visual de conflictos.
+
+## Agente Local (Collab Modeler Local Agent)
+
+El agente local es un servidor Node.js/TypeScript liviano que permite generar y ejecutar la aplicación Flutter directamente desde la web, sin descargas manuales. Reside en `scripts/local-agent/`.
+
+### Arquitectura
+
+- **Servidor Express**: escucha exclusivamente en `127.0.0.1:9876` (loopback). Nunca se vincula a `0.0.0.0`.
+- **Comunicación SSE**: los endpoints de generación y ejecución devuelven Server-Sent Events para progreso en tiempo real.
+- **Flujo de datos**: Web → Backend (obtiene spec firmada + Flutter ZIP) → Web → Agente local (valida, extrae, ejecuta).
+
+### Endpoints
+
+| Método | Ruta | Función |
+|---|---|---|
+| `GET` | `/api/status` | Health check + estado de Flutter SDK, ADB, dispositivos |
+| `GET` | `/api/devices` | Lista dispositivos conectados vía `adb devices -l` |
+| `POST` | `/api/generate` | Recibe spec+ZIP, valida firma/nonce, extrae y ejecuta `flutter pub get` (SSE) |
+| `POST` | `/api/run` | Ejecuta `flutter run` o `flutter build apk --release` (SSE) |
+
+### Backend: Endpoint auxiliar
+
+`POST /api/v1/diagrams/{id}/agent-spec` devuelve un JSON con:
+- `spec`: la `modeler-mobile-spec.json` firmada con HMAC-SHA256, incluyendo un `nonce` UUID de un solo uso.
+- `flutterZipBase64`: el proyecto Flutter completo codificado en Base64.
+- `signingKey`: la clave de firma para que el agente pueda verificar la integridad.
+
+### Seguridad
+
+- **Validación de origen**: solo acepta solicitudes desde `http://localhost:5173` o `http://127.0.0.1:5173`.
+- **Firma HMAC-SHA256**: verifica que la especificación no haya sido manipulada, usando la misma lógica que `MobileSpecService`.
+- **Nonce de un solo uso**: cada spec incluye un UUID `nonce` cubierto por la firma; el agente mantiene un Set de nonces usados en memoria.
+- **Comandos cerrados**: el agente solo ejecuta: `flutter pub get`, `flutter analyze`, `flutter run`, `flutter build apk --release`, `adb devices`, `adb reverse tcp:8080 tcp:8080`. Nunca ejecuta comandos que vengan del servidor web.
+- **Sanitización de rutas**: rechaza `..`, rutas absolutas fuera del directorio del usuario y directorios de sistema.
+
+### Conexión al backend
+
+**USB**: `adb reverse tcp:8080 tcp:8080` (automático). La app usa `--dart-define=API_BASE_URL=http://localhost:8080`.
+
+**Wi-Fi**: el usuario ingresa la IP privada de la PC en el modal del agente. La app usa `--dart-define=API_BASE_URL=http://IP:8080`.
+
+## Flutter Móvil Offline-First y Sincronización Bidireccional (Incremento 18)
+
+La aplicación Flutter móvil y multiplataforma generada por Collab Modeler y materializada en `mobile_parcial` implementa una arquitectura **offline-first** con almacenamiento local seguro, cola transaccional (outbox) y sincronización bidireccional continua con detección y resolución visual de conflictos de concurrencia.
+
+### 1. Almacenamiento Local SQLite (`AppDatabase`)
+Gestiona una base de datos SQLite relacional (`collab_modeler_offline.db`) con soporte tanto en dispositivos móviles (Android/iOS) como en entornos headless o escritorio (Windows/Linux/macOS) mediante FFI (`sqflite_common_ffi`):
+- **`cached_entities`**: Almacena instantáneas de los registros del modelo consultados o creados localmente (`entity_type`, `id`, `data`, `version`, `is_deleted`, `sync_status`, `updated_at`). Los estados de sincronización incluyen `synced`, `pending_create`, `pending_update`, `pending_delete` y `conflict`.
+- **`outbox_operations`**: Registro inmutable de operaciones CRUD generadas en el dispositivo (`id` UUID v4, `entity`, `record_id`, `action`, `base_version`, `created_at`, `payload`, `status`, `retry_count`, `error_message`).
+- **`conflict_records`**: Registros de conflictos de versión y concurrencia no resueltos (`id`, `operation_id`, `entity`, `record_id`, `base_version`, `server_version`, `local_payload`, `server_payload`, `conflicting_fields`, `created_at`, `status`).
+
+### 2. Transactional Outbox y Mutaciones Optimistas (`OutboxService`)
+Todas las operaciones locales de escritura (`create`, `update`, `delete`) en los repositorios de entidades:
+- Se ejecutan dentro de una transacción atómica SQLite que actualiza el caché de entidades local con el estado optimista y encola la operación en `outbox_operations` con un identificador UUID idempotente y la versión base.
+- Si hay conectividad, disparan en segundo plano la sincronización ascendente (`syncUp`) sin bloquear la interfaz de usuario.
+- Mapean de forma transparente identificadores temporales a los IDs asignados por el servidor si la API remota genera nuevos identificadores.
+
+### 3. Sincronización Bidireccional (`SyncService`)
+- **Detección de conectividad**: Verifica disponibilidad de red mediante socket TCP y sondeo HTTP contra el backend (`http://localhost:8080` o IP configurada).
+- **Sincronización ascendente (`syncUp`)**: Reenvía cronológicamente las operaciones de la outbox enviando el encabezado `Idempotency-Key: <opId>`.
+- **Sincronización descendente (`syncDown`)**: Consulta periódicamente o bajo demanda los registros remotos de cada entidad registrada e incorpora actualizaciones en el caché local para aquellos registros que no tengan mutaciones locales pendientes.
+
+### 4. Detección y Resolución de Conflictos 3-Way (`ConflictResolutionScreen`)
+- **Detección**: Al procesar una actualización en `syncUp`, si el servidor reporta una versión mayor que `base_version`, se comparan campo a campo el payload local y el payload remoto:
+  - Si los campos modificados localmente no chocan con cambios del servidor, convergen automáticamente.
+  - Si existen campos modificados concurrentemente con valores incompatibles, la operación se marca como `CONFLICT` y se genera un registro en `conflict_records` con los campos discordantes exactos.
+- **Resolución sin descarte silencioso**:
+  - **Conservar local**: Reenvía los datos del dispositivo sobrescribiendo el servidor y marca el conflicto como `RESOLVED_LOCAL`.
+  - **Descartar local**: Aplica la versión del servidor en el caché local, retira la operación de la outbox y marca el conflicto como `RESOLVED_SERVER`.
+  - **Editar y fusionar manualmente**: Abre un diálogo de edición interactivo mostrando lado a lado los valores del servidor y los valores locales para componer un nuevo payload fusionado y sincronizarlo.
+
+### 5. Almacenamiento Seguro de Credenciales y Sesión (`SecureStorageService`)
+- Utiliza `flutter_secure_storage` (cifrado con Android Keystore / iOS Keychain / DPAPI) con mecanismo de fallback transparente en memoria/preferencias para ejecuciones de pruebas headless.
+- Persiste tokens JWT de acceso (`auth_access_token`) y de refresco (`auth_refresh_token`).
+- `ApiClient` intercepta respuestas HTTP 401 y renueva automáticamente el token de acceso invocando `/api/auth/refresh` sin forzar al usuario a iniciar sesión nuevamente.
 

@@ -151,5 +151,179 @@ button { cursor: pointer; }
 .project-grid { display: grid; grid-template-columns: repeat(auto-fill,minmax(260px,1fr)); gap: 15px; }
 .project-grid > button { position: relative; display: grid; grid-template-columns: 46px 1fr 20px; grid-template-rows: auto auto; align-items: center; gap: 4px 12px; padding: 18px; text-align: left; border: 1px solid #e2e8f0; border-radius: 12px; background: white; color: #172033; box-shadow: 0 3px 12px rgb(15 23 42 / 4%); }
 .project-grid > button:hover { border-color: #818cf8; transform: translateY(-1px); }.project-icon { grid-row: 1 / 3; width: 44px; height: 44px; display: grid; place-items: center; border-radius: 10px; background: #eef2ff; color: #4f46e5; }.project-grid small { color: #64748b; }.project-grid > button > svg { grid-column: 3; grid-row: 1 / 3; color: #94a3b8; }
-.empty-projects { padding: 60px; text-align: center; border: 1px dashed #cbd5e1; border-radius: 14px; color: #64748b; }.empty-projects > svg { color: #818cf8; width: 44px; height: 44px; }.empty-projects h2 { color: #334155; }
 @media (max-width: 780px) { .auth-layout { grid-template-columns: 1fr; }.auth-hero { padding: 45px 25px; }.auth-hero h1 { font-size: 38px; }.auth-card { margin: 24px auto; }.projects-header > div:last-child > span { display: none; } }
+
+.spinning { animation: spin .8s linear infinite; }
+.app-notification {
+  position: fixed;
+  top: 66px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: min(640px, calc(100vw - 32px));
+  padding: 14px 18px;
+  border-radius: 12px;
+  box-shadow: 0 14px 40px rgba(15, 23, 42, 0.18);
+  font-size: 13px;
+  line-height: 1.5;
+  animation: slideDown .25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes slideDown {
+  from { opacity: 0; transform: translate(-50%, -14px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+.app-notification.error {
+  background: #fff1f2;
+  border: 1px solid #fecdd3;
+  color: #9f1239;
+}
+.app-notification.error strong {
+  color: #881337;
+}
+.app-notification.success {
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  color: #065f46;
+}
+.app-notification.success strong {
+  color: #064e3b;
+}
+.app-notification.info {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1e40af;
+}
+.app-notification.info strong {
+  color: #1e3a8a;
+}
+.notification-icon {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.notification-body {
+  flex: 1;
+  min-width: 0;
+}
+.notification-body strong {
+  display: block;
+  font-size: 14px;
+  margin-bottom: 2px;
+}
+.notification-body p {
+  margin: 0;
+}
+.notification-actions {
+  margin-top: 10px;
+  display: flex;
+  gap: 8px;
+}
+.action-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  border: none;
+  transition: all .15s ease;
+}
+.action-pill.primary {
+  background: #4f46e5;
+  color: white;
+  box-shadow: 0 2px 8px rgba(79, 70, 229, 0.3);
+}
+.action-pill.primary:hover {
+  background: #4338ca;
+  transform: translateY(-1px);
+}
+.action-pill.secondary {
+  background: white;
+  color: #065f46;
+  border: 1px solid #a7f3d0;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+}
+.action-pill.secondary:hover {
+  background: #f0fdf4;
+  transform: translateY(-1px);
+}
+.notification-close {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  opacity: 0.65;
+  padding: 4px;
+  margin: -4px -6px 0 0;
+}
+.notification-close:hover {
+  opacity: 1;
+}
+
+/* ===== Agent Modal ===== */
+.agent-button {
+  background: linear-gradient(135deg, #059669, #0d9488) !important;
+  color: #fff;
+  display: flex; gap: 7px; align-items: center;
+}
+.agent-button:hover { filter: brightness(1.08); }
+
+.agent-modal { max-width: 700px; min-height: 480px; display: flex; flex-direction: column; }
+.agent-modal-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.agent-modal-header h2 { display: flex; gap: 8px; align-items: center; margin: 0; font-size: 1.15rem; }
+.agent-modal-body { flex: 1; display: flex; flex-direction: column; gap: 16px; overflow: hidden; }
+
+.agent-log {
+  flex: 1;
+  max-height: 260px;
+  overflow-y: auto;
+  background: #0f172a;
+  color: #e2e8f0;
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+  font-size: 12.5px;
+  line-height: 1.7;
+  scroll-behavior: smooth;
+}
+.agent-log-line { white-space: pre-wrap; word-break: break-word; }
+.agent-log-line.success { color: #4ade80; }
+.agent-log-line.error { color: #f87171; }
+.agent-log-line.separator { color: #64748b; border-top: 1px solid #1e293b; padding-top: 4px; margin-top: 4px; }
+.agent-log-line.loading { display: flex; gap: 6px; align-items: center; color: #93c5fd; }
+
+.agent-error {
+  display: flex; gap: 8px; align-items: flex-start;
+  padding: 10px 14px; border-radius: 8px;
+  background: #fef2f2; color: #991b1b;
+  border: 1px solid #fecaca; font-size: 13px;
+}
+
+.agent-sdk-status {
+  display: flex; gap: 12px; flex-wrap: wrap; font-size: 12.5px; font-weight: 600;
+}
+.agent-sdk-status span {
+  padding: 4px 10px; border-radius: 999px; background: #f1f5f9; color: #475569;
+}
+.agent-sdk-status .ok { background: #ecfdf5; color: #065f46; }
+.agent-sdk-status .missing { background: #fef2f2; color: #991b1b; }
+
+.agent-controls {
+  display: flex; flex-direction: column; gap: 12px;
+  border-top: 1px solid #e2e8f0; padding-top: 14px;
+}
+.agent-field { display: flex; flex-direction: column; gap: 4px; }
+.agent-field label { font-size: 13px; font-weight: 600; color: #374151; display: flex; gap: 5px; align-items: center; }
+.agent-field select, .agent-field input[type="text"] {
+  padding: 8px 10px; border-radius: 6px; border: 1px solid #d1d5db;
+  font-size: 13px; background: #fff;
+}
+.agent-field small { font-size: 11.5px; color: #6b7280; margin-top: 2px; }
+.agent-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.agent-actions button { display: flex; gap: 6px; align-items: center; }
+.agent-output-path { font-size: 12px; color: #6b7280; margin: 4px 0 0; }
+.agent-output-path code { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-size: 11.5px; }

@@ -7,10 +7,20 @@ export class ApiError extends Error {
 
 let csrfToken = '';
 
+export function getCsrfToken(): string {
+  if (csrfToken) return csrfToken;
+  if (typeof document !== 'undefined') {
+    const match = document.cookie.match(/(^|;)\s*XSRF-TOKEN\s*=\s*([^;]+)/);
+    if (match) return decodeURIComponent(match[2]);
+  }
+  return '';
+}
+
 async function raw<T>(url: string, options?: RequestInit): Promise<T> {
   const headers = new Headers(options?.headers);
   if (!(options?.body instanceof FormData)) headers.set('Content-Type', 'application/json');
-  if (csrfToken && options?.method && !['GET', 'HEAD'].includes(options.method)) headers.set('X-XSRF-TOKEN', csrfToken);
+  const token = getCsrfToken();
+  if (token && options?.method && !['GET', 'HEAD'].includes(options.method)) headers.set('X-XSRF-TOKEN', token);
   let response: Response;
   try { response = await fetch(url, { credentials: 'include', ...options, headers }); }
   catch { throw new ApiError(0, 'NETWORK_ERROR', 'No se pudo conectar con el servidor.'); }
@@ -35,7 +45,11 @@ export interface InvitationInfo { valid: boolean; email: string | null; diagramI
 
 export const authApi = {
   me: async () => { const me = await raw<CurrentUser>('/api/v1/auth/me'); csrfToken = me.csrfToken; return me; },
-  login: (email: string, password: string) => raw<CurrentUser>('/api/v1/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
+  login: async (email: string, password: string) => {
+    const user = await raw<CurrentUser>('/api/v1/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
+    csrfToken = user.csrfToken;
+    return user;
+  },
   register: (fullName: string, email: string, password: string, passwordConfirmation: string, invitationToken?: string) =>
     raw<{ message: string }>('/api/v1/auth/register', { method: 'POST', body: JSON.stringify({ fullName, email, password, passwordConfirmation, invitationToken: invitationToken || null }) }),
   invitation: (token: string) => raw<InvitationInfo>(`/api/v1/auth/invitations/${encodeURIComponent(token)}`),
@@ -65,6 +79,8 @@ export const diagramApi = {
     `/api/v1/diagrams/${id}/generation?groupId=com.generated&artifactId=generated-api${versionId ? `&versionId=${encodeURIComponent(versionId)}` : ''}`,
   mobileSpecUrl: (id: string, versionId?: string) =>
     `/api/v1/diagrams/${id}/mobile-spec${versionId ? `?versionId=${encodeURIComponent(versionId)}` : ''}`,
+  flutterGenerationUrl: (id: string, versionId?: string) =>
+    `/api/v1/diagrams/${id}/flutter-generation${versionId ? `?versionId=${encodeURIComponent(versionId)}` : ''}`,
   xmiExportUrl: (id: string) => `/api/v1/diagrams/${id}/xmi`,
 };
 
@@ -108,8 +124,9 @@ export async function downloadXmi(id: string, name: string): Promise<void> {
     const problem = await response.json().catch(() => ({})) as { detail?: string; code?: string };
     throw new ApiError(response.status, problem.code ?? `HTTP_${response.status}`, problem.detail ?? 'No se pudo exportar XMI');
   }
-  const href = URL.createObjectURL(await response.blob());
-  const link = document.createElement('a'); link.href = href; link.download = `${name}.xmi`; link.click(); URL.revokeObjectURL(href);
+  const disposition = response.headers.get('content-disposition');
+  const filename = extractFilename(disposition, `${name}.xmi`);
+  triggerBlobDownload(await response.blob(), filename, 'application/xml');
 }
 
 export interface RemoteOperation {
@@ -193,16 +210,340 @@ export function subscribeToDiagram(id: string, handlers: {
   };
 }
 
-export async function downloadGeneratedBackend(id: string, versionId?: string): Promise<void> {
-  const response = await fetch(diagramApi.generationUrl(id, versionId), { method: 'POST', credentials: 'include', headers: csrfToken ? { 'X-XSRF-TOKEN': csrfToken } : {} });
-  if (!response.ok) throw new ApiError(response.status, `HTTP_${response.status}`, (await response.json().catch(() => ({}))).detail ?? 'No se pudo generar el backend');
-  const href = URL.createObjectURL(await response.blob());
-  const link = document.createElement('a'); link.href = href; link.download = 'generated-api.zip'; link.click(); URL.revokeObjectURL(href);
+function extractFilename(disposition: string | null, fallback: string): string {
+  if (!disposition) return fallback;
+  // 1. RFC 5987 / RFC 6266 filename*=UTF-8''filename.ext
+  const utf8Match = disposition.match(/filename\*\s*=\s*UTF-8''([^;\r\n]+)/i);
+  if (utf8Match && utf8Match[1]) {
+    try {
+      const decoded = decodeURIComponent(utf8Match[1].trim().replace(/^["']|["']$/g, ''));
+      if (decoded) return decoded;
+    } catch {
+      // ignore URI malformed and fallback
+    }
+  }
+  // 2. Standard filename="filename.ext" or filename=filename.ext
+  const standardMatch = disposition.match(/filename\s*=\s*"?([^";\r\n]+)"?/i);
+  if (standardMatch && standardMatch[1]) {
+    const trimmed = standardMatch[1].trim();
+    if (trimmed) return trimmed;
+  }
+  return fallback;
 }
 
-export async function downloadMobileSpec(id: string, versionId?: string): Promise<void> {
-  const response = await fetch(diagramApi.mobileSpecUrl(id, versionId), { method: 'GET', credentials: 'include', headers: csrfToken ? { 'X-XSRF-TOKEN': csrfToken } : {} });
-  if (!response.ok) throw new ApiError(response.status, `HTTP_${response.status}`, (await response.json().catch(() => ({}))).detail ?? 'No se pudo descargar modeler-mobile-spec.json');
-  const href = URL.createObjectURL(await response.blob());
-  const link = document.createElement('a'); link.href = href; link.download = 'modeler-mobile-spec.json'; link.click(); URL.revokeObjectURL(href);
+export function triggerBlobDownload(data: Blob | ArrayBuffer, filename: string, mimeType = 'application/zip'): string {
+  let safeName = filename;
+  if (mimeType === 'application/zip' && !safeName.toLowerCase().endsWith('.zip')) {
+    safeName += '.zip';
+  } else if (mimeType === 'application/json' && !safeName.toLowerCase().endsWith('.json')) {
+    safeName += '.json';
+  } else if (mimeType === 'application/xml' && !safeName.toLowerCase().endsWith('.xmi') && !safeName.toLowerCase().endsWith('.xml')) {
+    safeName += '.xmi';
+  }
+
+  const blob = data instanceof Blob
+    ? (data.type === mimeType ? data : new Blob([data], { type: mimeType }))
+    : new Blob([data], { type: mimeType });
+
+  const href = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = href;
+  link.download = safeName;
+  link.style.position = 'fixed';
+  link.style.left = '-9999px';
+  link.style.top = '-9999px';
+  link.style.opacity = '0';
+  document.body.appendChild(link);
+
+  // Directly invoke click() to trigger the browser's native download activation behavior
+  link.click();
+
+  setTimeout(() => {
+    if (link.parentNode) {
+      link.parentNode.removeChild(link);
+    }
+  }, 1000);
+
+  // Keep object URL alive for 60 seconds so browser download manager finishes saving file
+  setTimeout(() => {
+    URL.revokeObjectURL(href);
+  }, 60000);
+
+  return safeName;
 }
+
+export async function downloadGeneratedBackend(id: string, versionId?: string): Promise<string> {
+  const token = getCsrfToken();
+  const headers: Record<string, string> = {};
+  if (token) headers['X-XSRF-TOKEN'] = token;
+  const response = await fetch(diagramApi.generationUrl(id, versionId), {
+    method: 'GET',
+    credentials: 'include',
+    headers
+  });
+  if (!response.ok) {
+    const problem = await response.json().catch(() => ({})) as { detail?: string; code?: string; elementId?: string; [key: string]: unknown };
+    throw new ApiError(response.status, problem.code ?? `HTTP_${response.status}`, problem.detail ?? 'No se pudo generar el backend', problem);
+  }
+  const disposition = response.headers.get('content-disposition');
+  let filename = extractFilename(disposition, 'generated-api.zip');
+  if (!filename.toLowerCase().endsWith('.zip')) filename += '.zip';
+  const blob = await response.blob();
+  return triggerBlobDownload(blob, filename, 'application/zip');
+}
+
+export async function downloadMobileSpec(id: string, versionId?: string): Promise<string> {
+  const token = getCsrfToken();
+  const headers: Record<string, string> = {};
+  if (token) headers['X-XSRF-TOKEN'] = token;
+  const response = await fetch(diagramApi.mobileSpecUrl(id, versionId), {
+    method: 'GET',
+    credentials: 'include',
+    headers
+  });
+  if (!response.ok) {
+    const problem = await response.json().catch(() => ({})) as { detail?: string; code?: string; elementId?: string; [key: string]: unknown };
+    throw new ApiError(response.status, problem.code ?? `HTTP_${response.status}`, problem.detail ?? 'No se pudo descargar modeler-mobile-spec.json', problem);
+  }
+  const disposition = response.headers.get('content-disposition');
+  let filename = extractFilename(disposition, 'modeler-mobile-spec.json');
+  if (!filename.toLowerCase().endsWith('.json')) filename += '.json';
+  const blob = await response.blob();
+  return triggerBlobDownload(blob, filename, 'application/json');
+}
+
+export async function downloadGeneratedFlutter(id: string, versionId?: string, appTitle?: string): Promise<string> {
+  const token = getCsrfToken();
+  const headers: Record<string, string> = {};
+  if (token) headers['X-XSRF-TOKEN'] = token;
+  const url = diagramApi.flutterGenerationUrl(id, versionId);
+  const response = await fetch(url, {
+    method: 'GET',
+    credentials: 'include',
+    headers
+  });
+  if (!response.ok) {
+    const problem = await response.json().catch(() => ({})) as { detail?: string; code?: string; elementId?: string; [key: string]: unknown };
+    throw new ApiError(response.status, problem.code ?? `HTTP_${response.status}`, problem.detail ?? 'No se pudo generar el proyecto Flutter', problem);
+  }
+  const cleanName = (appTitle || 'flutter-app').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  const disposition = response.headers.get('content-disposition');
+  let filename = extractFilename(disposition, `${cleanName || 'app'}-mobile.zip`);
+  if (!filename.toLowerCase().endsWith('.zip')) filename += '.zip';
+  const blob = await response.blob();
+  return triggerBlobDownload(blob, filename, 'application/zip');
+}
+
+// =============================================================================
+// Local Agent API — communicates with the local agent on 127.0.0.1:9876
+// =============================================================================
+
+const AGENT_BASE = 'http://127.0.0.1:9876';
+
+export interface AgentStatus {
+  agent: string;
+  version: string;
+  ready: boolean;
+  flutterAvailable: boolean;
+  flutterVersion: string | null;
+  adbAvailable: boolean;
+  adbVersion: string | null;
+  androidHome: string | null;
+  devices: AgentDevice[];
+}
+
+export interface AgentDevice {
+  id: string;
+  name: string;
+  status: string;
+}
+
+export interface AgentSseEvent {
+  type: string;
+  data: Record<string, unknown>;
+}
+
+export const agentApi = {
+  /** Check if the local agent is running and get SDK status. */
+  checkStatus: async (): Promise<AgentStatus> => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3000);
+    try {
+      const res = await fetch(`${AGENT_BASE}/api/status`, { signal: controller.signal });
+      if (!res.ok) throw new Error(`Agent status HTTP ${res.status}`);
+      return res.json();
+    } catch {
+      throw new ApiError(0, 'AGENT_UNAVAILABLE', 'El agente local no está activo. Ejecuta: pnpm agent:start');
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  },
+
+  /** List connected devices via the agent. */
+  listDevices: async (): Promise<AgentDevice[]> => {
+    try {
+      const res = await fetch(`${AGENT_BASE}/api/devices`);
+      if (!res.ok) throw new Error(`Devices HTTP ${res.status}`);
+      const data = await res.json();
+      return data.devices || [];
+    } catch {
+      throw new ApiError(0, 'AGENT_UNAVAILABLE', 'No se pudo obtener la lista de dispositivos del agente local');
+    }
+  },
+
+  /** Fetch the agent-spec bundle (spec + Flutter ZIP) from the backend. */
+  fetchAgentSpec: async (diagramId: string, versionId?: string): Promise<unknown> => {
+    const token = getCsrfToken();
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['X-XSRF-TOKEN'] = token;
+    const url = `/api/v1/diagrams/${diagramId}/agent-spec${versionId ? `?versionId=${encodeURIComponent(versionId)}` : ''}`;
+    const res = await fetch(url, { method: 'POST', credentials: 'include', headers });
+    if (!res.ok) {
+      const problem = await res.json().catch(() => ({})) as { detail?: string; code?: string };
+      throw new ApiError(res.status, problem.code ?? `HTTP_${res.status}`, problem.detail ?? 'No se pudo obtener la especificación para el agente');
+    }
+    return res.json();
+  },
+
+  /**
+   * Send the spec bundle to the local agent for generation.
+   * Returns an EventSource-like reader for SSE progress events.
+   */
+  generate: (agentSpecBundle: unknown, outputDir?: string): { close: () => void; onEvent: (handler: (event: AgentSseEvent) => void) => void } => {
+    const body = JSON.stringify({ ...(agentSpecBundle as Record<string, unknown>), outputDir });
+    let onEventHandler: (event: AgentSseEvent) => void = () => {};
+    const notify = (event: AgentSseEvent) => { onEventHandler(event); };
+    const controller = new AbortController();
+
+    // Use fetch with streaming for SSE
+    void (async () => {
+      try {
+        const res = await fetch(`${AGENT_BASE}/api/generate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Origin': window.location.origin },
+          body,
+          signal: controller.signal,
+        });
+
+        if (!res.ok || !res.body) {
+          const errText = await res.text().catch(() => 'Error desconocido');
+          notify({ type: 'error', data: { message: errText } });
+          return;
+        }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+
+          // Parse SSE events from the buffer
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          let currentEvent = '';
+          let currentData = '';
+
+          for (const line of lines) {
+            if (line.startsWith('event: ')) {
+              currentEvent = line.slice(7).trim();
+            } else if (line.startsWith('data: ')) {
+              currentData = line.slice(6);
+              if (currentEvent && currentData) {
+                try {
+                  notify({ type: currentEvent, data: JSON.parse(currentData) });
+                } catch {
+                  notify({ type: currentEvent, data: { raw: currentData } });
+                }
+                currentEvent = '';
+                currentData = '';
+              }
+            }
+          }
+        }
+      } catch (err) {
+        if (!controller.signal.aborted) {
+          notify({ type: 'error', data: { message: err instanceof Error ? err.message : 'Error de conexión con el agente' } });
+        }
+      }
+    })();
+
+    return {
+      close: () => controller.abort(),
+      onEvent: (h) => { onEventHandler = h; },
+    };
+  },
+
+  /**
+   * Execute flutter run or flutter build on the generated project.
+   * Returns an SSE reader for progress events.
+   */
+  run: (projectDir: string, action: 'flutter-run' | 'flutter-build-apk', deviceId?: string, apiBaseUrl?: string): { close: () => void; onEvent: (handler: (event: AgentSseEvent) => void) => void } => {
+    const body = JSON.stringify({ projectDir, action, deviceId, apiBaseUrl });
+    let onEventHandler: (event: AgentSseEvent) => void = () => {};
+    const notify = (event: AgentSseEvent) => { onEventHandler(event); };
+    const controller = new AbortController();
+
+    void (async () => {
+      try {
+        const res = await fetch(`${AGENT_BASE}/api/run`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Origin': window.location.origin },
+          body,
+          signal: controller.signal,
+        });
+
+        if (!res.ok || !res.body) {
+          const errText = await res.text().catch(() => 'Error desconocido');
+          notify({ type: 'error', data: { message: errText } });
+          return;
+        }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          let currentEvent = '';
+          let currentData = '';
+
+          for (const line of lines) {
+            if (line.startsWith('event: ')) {
+              currentEvent = line.slice(7).trim();
+            } else if (line.startsWith('data: ')) {
+              currentData = line.slice(6);
+              if (currentEvent && currentData) {
+                try {
+                  notify({ type: currentEvent, data: JSON.parse(currentData) });
+                } catch {
+                  notify({ type: currentEvent, data: { raw: currentData } });
+                }
+                currentEvent = '';
+                currentData = '';
+              }
+            }
+          }
+        }
+      } catch (err) {
+        if (!controller.signal.aborted) {
+          notify({ type: 'error', data: { message: err instanceof Error ? err.message : 'Error de conexión con el agente' } });
+        }
+      }
+    })();
+
+    return {
+      close: () => controller.abort(),
+      onEvent: (h) => { onEventHandler = h; },
+    };
+  },
+};

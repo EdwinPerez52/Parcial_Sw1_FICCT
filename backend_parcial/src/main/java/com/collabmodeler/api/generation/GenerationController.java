@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.security.Principal;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 
 @RestController
@@ -25,22 +26,25 @@ public class GenerationController {
     private final AccessService access;
     private final MobileSpecService mobileSpecService;
     private final OpenApiGenerator openApiGenerator;
+    private final FlutterGenerator flutterGenerator;
 
     public GenerationController(BackendGenerator generator,
                                 DiagramService diagrams,
                                 DiagramVersionService versions,
                                 AccessService access,
                                 MobileSpecService mobileSpecService,
-                                OpenApiGenerator openApiGenerator) {
+                                OpenApiGenerator openApiGenerator,
+                                FlutterGenerator flutterGenerator) {
         this.generator = generator;
         this.diagrams = diagrams;
         this.versions = versions;
         this.access = access;
         this.mobileSpecService = mobileSpecService;
         this.openApiGenerator = openApiGenerator;
+        this.flutterGenerator = flutterGenerator;
     }
 
-    @PostMapping(value = "/generation", produces = "application/zip")
+    @RequestMapping(value = "/generation", method = {RequestMethod.GET, RequestMethod.POST}, produces = "application/zip")
     public ResponseEntity<byte[]> generate(@PathVariable UUID id,
                                            @RequestParam(required = false) UUID versionId,
                                            @RequestParam(defaultValue = "com.generated") String groupId,
@@ -55,11 +59,12 @@ public class GenerationController {
 
         return ResponseEntity.ok()
             .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment().filename(filename).build().toString())
+            .header(HttpHeaders.ACCESS_CONTROL_EXPOSE_HEADERS, HttpHeaders.CONTENT_DISPOSITION)
             .contentType(MediaType.parseMediaType("application/zip"))
             .body(body);
     }
 
-    @PostMapping(value = "/versions/{versionId}/generation", produces = "application/zip")
+    @RequestMapping(value = "/versions/{versionId}/generation", method = {RequestMethod.GET, RequestMethod.POST}, produces = "application/zip")
     public ResponseEntity<byte[]> generateFromVersion(@PathVariable UUID id,
                                                       @PathVariable UUID versionId,
                                                       @RequestParam(defaultValue = "com.generated") String groupId,
@@ -80,6 +85,7 @@ public class GenerationController {
         String filename = "modeler-mobile-spec-r" + snapshot.revision() + ".json";
         return ResponseEntity.ok()
             .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment().filename(filename).build().toString())
+            .header(HttpHeaders.ACCESS_CONTROL_EXPOSE_HEADERS, HttpHeaders.CONTENT_DISPOSITION)
             .contentType(MediaType.APPLICATION_JSON)
             .body(specJson);
     }
@@ -97,6 +103,80 @@ public class GenerationController {
                                                           Principal principal) {
         return getMobileSpec(id, versionId, principal);
     }
+
+    @PostMapping(value = "/flutter-generation", produces = "application/zip")
+    public ResponseEntity<byte[]> generateFlutter(@PathVariable UUID id,
+                                                  @RequestParam(required = false) UUID versionId,
+                                                  @RequestParam(defaultValue = "collab_mobile_app") String appName,
+                                                  Principal principal) {
+        access.requireMember(id, AccessController.subject(principal));
+        DiagramDocument snapshot = resolveSnapshot(id, versionId, principal);
+        String openapiYaml = openApiGenerator.generateYaml(snapshot, "generated-api");
+        byte[] body = flutterGenerator.generateZip(snapshot, openapiYaml, snapshot.name() + " App");
+        String filename = "collab-modeler-" + sanitizeArtifactId(snapshot.name().toLowerCase(Locale.ROOT)) + "-flutter-r" + snapshot.revision() + ".zip";
+
+        return ResponseEntity.ok()
+            .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment().filename(filename).build().toString())
+            .header(HttpHeaders.ACCESS_CONTROL_EXPOSE_HEADERS, HttpHeaders.CONTENT_DISPOSITION)
+            .contentType(MediaType.parseMediaType("application/zip"))
+            .body(body);
+    }
+
+    @GetMapping(value = "/flutter-generation", produces = "application/zip")
+    public ResponseEntity<byte[]> getFlutterGeneration(@PathVariable UUID id,
+                                                       @RequestParam(required = false) UUID versionId,
+                                                       @RequestParam(defaultValue = "collab_mobile_app") String appName,
+                                                       Principal principal) {
+        return generateFlutter(id, versionId, appName, principal);
+    }
+
+    @PostMapping(value = "/versions/{versionId}/flutter-generation", produces = "application/zip")
+    public ResponseEntity<byte[]> generateFlutterForVersion(@PathVariable UUID id,
+                                                            @PathVariable UUID versionId,
+                                                            @RequestParam(defaultValue = "collab_mobile_app") String appName,
+                                                            Principal principal) {
+        return generateFlutter(id, versionId, appName, principal);
+    }
+
+    @GetMapping(value = "/versions/{versionId}/flutter-generation", produces = "application/zip")
+    public ResponseEntity<byte[]> getFlutterGenerationForVersion(@PathVariable UUID id,
+                                                                 @PathVariable UUID versionId,
+                                                                 @RequestParam(defaultValue = "collab_mobile_app") String appName,
+                                                                 Principal principal) {
+        return generateFlutter(id, versionId, appName, principal);
+    }
+
+    /**
+     * Returns a JSON payload for the local agent containing the signed spec (with nonce)
+     * and the Flutter project ZIP encoded as Base64.
+     */
+    @PostMapping(value = "/agent-spec", produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<String> getAgentSpec(@PathVariable UUID id,
+                                               @RequestParam(required = false) UUID versionId,
+                                               Principal principal) {
+        access.requireMember(id, AccessController.subject(principal));
+        DiagramDocument snapshot = resolveSnapshot(id, versionId, principal);
+        String openapiYaml = openApiGenerator.generateYaml(snapshot, "generated-api");
+
+        String agentSpecJson = mobileSpecService.generateAgentSpecJson(snapshot, versionId, openapiYaml);
+        byte[] flutterZip = flutterGenerator.generateZip(snapshot, openapiYaml, snapshot.name() + " App");
+        String flutterZipBase64 = java.util.Base64.getEncoder().encodeToString(flutterZip);
+
+        try {
+            var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+            var root = new java.util.LinkedHashMap<String, Object>();
+            root.put("spec", mapper.readValue(agentSpecJson, java.util.Map.class));
+            root.put("flutterZipBase64", flutterZipBase64);
+            root.put("signingKey", mobileSpecService.getSigningKey());
+
+            return ResponseEntity.ok()
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(mapper.writerWithDefaultPrettyPrinter().writeValueAsString(root));
+        } catch (Exception ex) {
+            throw new IllegalStateException("No se pudo generar el paquete para el agente local", ex);
+        }
+    }
+
 
     private DiagramDocument resolveSnapshot(UUID diagramId, UUID versionId, Principal principal) {
         if (versionId != null) {

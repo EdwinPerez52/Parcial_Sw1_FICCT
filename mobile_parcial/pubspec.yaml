@@ -1,0 +1,31 @@
+name: ventas
+description: Ventas Móvil generada automáticamente desde Collab Modeler
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  intl: any
+  http: any
+  shared_preferences: any
+  sqflite: any
+  sqflite_common_ffi: any
+  path: any
+  flutter_secure_storage: any
+  uuid: any
+  image_picker: any
+  speech_to_text: any
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: any
+
+flutter:
+  uses-material-design: true

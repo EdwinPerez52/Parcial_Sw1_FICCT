@@ -33,4 +33,57 @@ class AiControllerTest {
             new MockMultipartFile("file", "photo.png", "image/png", new byte[]{1}), principal));
         verifyNoInteractions(ai);
     }
+
+    @Test
+    void mobileAnalyzeProcessesValidImageAndReturnsProposal() throws Exception {
+        var ai = mock(AiService.class);
+        var controller = new AiController(ai, mock(AccessService.class));
+        var account = UUID.randomUUID();
+        var principal = UsernamePasswordAuthenticationToken.authenticated(
+            new AccountPrincipal(account, "user@example.com", "User", true, false), null, List.of());
+
+        byte[] validPng = new byte[]{
+            (byte) 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, // signature
+            0x00, 0x00, 0x00, 0x0D, // IHDR chunk length (13)
+            'I', 'H', 'D', 'R',     // chunk type
+            0x00, 0x00, 0x00, 0x64, // width = 100
+            0x00, 0x00, 0x00, 0x64  // height = 100
+        };
+        var file = new MockMultipartFile("file", "receipt.png", "image/png", validPng);
+        when(ai.analyzeMobileImage(any(), eq("image/png"), eq("analizar factura")))
+            .thenReturn(java.util.Map.of("action", "create", "entity", "Factura", "confidence", 0.95));
+
+        var result = controller.mobileAnalyze(file, "analizar factura", principal);
+        org.junit.jupiter.api.Assertions.assertNotNull(result);
+        org.junit.jupiter.api.Assertions.assertEquals("Factura", result.get("entity"));
+        verify(ai).analyzeMobileImage(any(), eq("image/png"), eq("analizar factura"));
+    }
+
+    @Test
+    void mobileAnalyzeProcessesPromptWhenNoImage() throws Exception {
+        var ai = mock(AiService.class);
+        var controller = new AiController(ai, mock(AccessService.class));
+        var account = UUID.randomUUID();
+        var principal = UsernamePasswordAuthenticationToken.authenticated(
+            new AccountPrincipal(account, "user@example.com", "User", true, false), null, List.of());
+
+        when(ai.analyzeMobilePrompt("crear cliente Ana email ana@test.com"))
+            .thenReturn(java.util.Map.of("action", "create", "entity", "Cliente"));
+
+        var result = controller.mobileAnalyze(null, "crear cliente Ana email ana@test.com", principal);
+        org.junit.jupiter.api.Assertions.assertEquals("Cliente", result.get("entity"));
+        verify(ai).analyzeMobilePrompt("crear cliente Ana email ana@test.com");
+    }
+
+    @Test
+    void mobileAnalyzeRejectsWhenNeitherImageNorPromptProvided() {
+        var ai = mock(AiService.class);
+        var controller = new AiController(ai, mock(AccessService.class));
+        var account = UUID.randomUUID();
+        var principal = UsernamePasswordAuthenticationToken.authenticated(
+            new AccountPrincipal(account, "user@example.com", "User", true, false), null, List.of());
+
+        assertThrows(IllegalArgumentException.class, () -> controller.mobileAnalyze(null, null, principal));
+        verifyNoInteractions(ai);
+    }
 }

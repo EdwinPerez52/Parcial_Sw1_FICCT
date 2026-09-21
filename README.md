@@ -122,16 +122,68 @@ Endpoints REST disponibles bajo `/api/v1`:
 4. Activa «Depuración USB», conecta un cable de datos, desbloquea el teléfono y acepta la huella RSA.
 5. Ejecuta `pnpm mobile:check`. `adb devices -l` debe mostrar el estado `device`, no `unauthorized`.
 
-La futura aplicación Flutter generada debe usar la IP privada de la PC (por ejemplo `http://192.168.1.20:8080`), nunca `localhost`. PC y teléfono deben compartir Wi‑Fi y el Firewall de Windows debe permitir el puerto 8080 solo en la red privada.
+La aplicación Flutter generada (`mobile_parcial`) implementa arquitectura offline-first con SQLite local (`sqflite`), cola transaccional (outbox) con reintentos e idempotencia (`Idempotency-Key`), refresco automático de tokens JWT en 401 y sincronización bidireccional con pantalla de resolución visual de conflictos (conservar local, descartar local o fusionar manualmente).
+
+Comandos de verificación y pruebas móviles:
+```powershell
+cd mobile_parcial
+flutter pub get
+flutter analyze --no-fatal-infos
+flutter test
+```
+
+## Agente Local para Generación Flutter en Vivo
+
+El agente local permite generar y ejecutar la aplicación Flutter directamente desde la web de Collab Modeler, sin descargar ZIPs manualmente.
+
+### Instalación del agente
+
+```powershell
+pnpm agent:install
+```
+
+Esto instala las dependencias de Node.js y compila el agente TypeScript en `scripts/local-agent/dist/`.
+
+### Uso
+
+1. Inicia el backend y la web: `pnpm dev`
+2. Inicia el agente local: `pnpm agent:start`
+3. Conecta un dispositivo Android por USB con depuración habilitada.
+4. En la web, abre un diagrama y haz clic en **Generar App Móvil** (botón verde en la barra superior).
+5. El flujo automático: verifica el agente → obtiene la especificación firmada → genera el proyecto Flutter → lista dispositivos.
+6. Selecciona un dispositivo y haz clic en **Ejecutar en dispositivo** o **Compilar APK release**.
+
+### Conexión USB vs Wi-Fi
+
+**USB (recomendado):** El agente ejecuta automáticamente `adb reverse tcp:8080 tcp:8080` antes de `flutter run`. La app Flutter usa `http://localhost:8080` como API base por defecto (`--dart-define=API_BASE_URL=http://localhost:8080`). No requiere Wi-Fi compartida.
+
+**Wi-Fi:** Ingresa la IP privada de la PC (por ejemplo `http://192.168.1.20:8080`) en el campo "API URL" del modal del agente. PC y teléfono deben estar en la misma red. Verifica el firewall.
+
+### Seguridad del agente
+
+- Escucha solo en `127.0.0.1:9876` (loopback, nunca expuesto a la red).
+- Valida el origen de cada solicitud (`http://localhost:5173`).
+- Verifica la firma HMAC-SHA256 de la especificación.
+- Cada especificación incluye un nonce UUID de un solo uso; no se puede reutilizar.
+- Solo ejecuta un conjunto cerrado de comandos (`flutter run`, `flutter build`, `adb reverse`, etc.).
+- Nunca acepta rutas con `..`, rutas fuera del directorio del usuario ni comandos arbitrarios del servidor.
+
+### Pruebas del agente
+
+```powershell
+pnpm agent:test
+```
 
 ## Solución de problemas
 
 - **Corepack no activa pnpm:** abre PowerShell con permisos suficientes una vez o usa `corepack pnpm ...`.
 - **Puerto 5432 ocupado:** detén otro PostgreSQL o cambia el mapeo y `DATABASE_URL`.
-- **Flyway informa checksum inválido:** no edites V1–V4; crea V5 o posterior para cambios nuevos.
+- **Flyway informa checksum inválido:** no edites V1–V8; crea V9 o posterior para cambios nuevos.
 - **Testcontainers no encuentra Docker:** inicia Docker Desktop y espera a que `docker info` responda.
 - **ADB muestra `unauthorized`:** revoca autorizaciones USB, reconecta y acepta la huella.
 - **ADB no muestra el A56:** cambia cable/puerto, selecciona transferencia de archivos e instala el controlador USB Samsung.
 - **El teléfono no llega al backend:** comprueba `ipconfig`, la misma Wi‑Fi, el firewall y `http://IP_DE_LA_PC:8080/actuator/health`.
+- **Agente no responde:** verifica que esté corriendo con `pnpm agent:start` y que el puerto 9876 esté libre.
+- **Firma inválida:** asegura que la clave de firma del agente coincida con la del backend (`app.mobile-spec.secret`).
 
 Consulta [PLAN.md](./PLAN.md), [arquitectura](./docs/architecture.md) y el [contrato UML JSON](./docs/uml-json-contract.md).

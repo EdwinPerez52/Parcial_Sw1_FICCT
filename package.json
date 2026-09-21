@@ -12,6 +12,11 @@
     "test": "corepack pnpm --filter @modeler/web test",
     "test:all": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/test-all.ps1",
     "mobile:check": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/check-mobile.ps1",
+    "mobile:generate": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/generate-mobile.ps1",
+    "agent:install": "cd scripts/local-agent && npm install && npm run build",
+    "agent:start": "node scripts/local-agent/dist/server.js",
+    "agent:dev": "cd scripts/local-agent && npm run dev",
+    "agent:test": "cd scripts/local-agent && npm test",
     "stop": "docker compose down"
   }
 }
