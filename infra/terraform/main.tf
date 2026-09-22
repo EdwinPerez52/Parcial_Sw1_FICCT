@@ -204,18 +204,6 @@ resource "aws_cloudwatch_log_group" "api" {
   retention_in_days = 30
   tags              = local.tags
 }
-resource "aws_ecr_repository" "api" {
-  name = "${local.name}-api"
-  image_scanning_configuration {
-    scan_on_push = true
-  }
-  tags = local.tags
-}
-resource "aws_cloudwatch_log_group" "api" {
-  name              = "/ecs/${local.name}/api"
-  retention_in_days = 30
-  tags              = local.tags
-}
 resource "aws_ecs_cluster" "main" {
   name = local.name
   tags = local.tags
@@ -252,6 +240,16 @@ resource "aws_iam_role_policy" "secrets" {
   policy = jsonencode({
     Version = "2012-10-17", Statement = [{
       Effect = "Allow", Action = ["secretsmanager:GetSecretValue"], Resource = aws_secretsmanager_secret.runtime.arn
+    }]
+  })
+}
+resource "aws_iam_role_policy" "generation_artifacts" {
+  role = aws_iam_role.ecs_execution.id
+  policy = jsonencode({
+    Version = "2012-10-17", Statement = [{
+      Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"], Resource = "${aws_s3_bucket.artifacts.arn}/*"
+    }, {
+      Effect = "Allow", Action = ["sqs:SendMessage", "sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"], Resource = aws_sqs_queue.generation.arn
     }]
   })
 }
@@ -294,6 +292,7 @@ resource "aws_ecs_task_definition" "api" {
   cpu                      = 512
   memory                   = 1024
   execution_role_arn       = aws_iam_role.ecs_execution.arn
+  task_role_arn            = aws_iam_role.ecs_execution.arn
   container_definitions = jsonencode([{
     name = "api", image = var.api_image, essential = true
     portMappings = [{
@@ -320,6 +319,12 @@ resource "aws_ecs_task_definition" "api" {
       },
       {
         name = "AI_VISION_MODEL", value = var.ai_vision_model
+      },
+      {
+        name = "GENERATION_S3_BUCKET", value = aws_s3_bucket.artifacts.id
+      },
+      {
+        name = "GENERATION_SQS_QUEUE_URL", value = aws_sqs_queue.generation.url
       }
     ]
     secrets = [
@@ -334,6 +339,43 @@ resource "aws_ecs_task_definition" "api" {
     }
 
   }])
+  tags = local.tags
+}
+resource "aws_ecs_task_definition" "generation_worker" {
+  family = "${local.name}-generation-worker"
+  requires_compatibilities = ["FARGATE"]
+  network_mode = "awsvpc"
+  cpu = 1024
+  memory = 2048
+  execution_role_arn = aws_iam_role.ecs_execution.arn
+  task_role_arn = aws_iam_role.ecs_execution.arn
+  container_definitions = jsonencode([{
+    name = "generation-worker", image = var.api_image, essential = true
+    environment = [
+      { name = "SPRING_PROFILES_ACTIVE", value = "prod,generation-worker" },
+      { name = "GENERATION_WORKER_ENABLED", value = "true" },
+      { name = "DATABASE_URL", value = "jdbc:postgresql://${aws_db_instance.postgres.address}:5432/modeler" },
+      { name = "DATABASE_USER", value = "modeler" },
+      { name = "DATABASE_PASSWORD", value = random_password.database.result },
+      { name = "REDIS_URL", value = "rediss://${aws_elasticache_replication_group.redis.primary_endpoint_address}:6379" },
+      { name = "GENERATION_S3_BUCKET", value = aws_s3_bucket.artifacts.id },
+      { name = "GENERATION_SQS_QUEUE_URL", value = aws_sqs_queue.generation.url },
+      { name = "AI_BASE_URL", value = var.ai_base_url },
+      { name = "AI_TEXT_MODEL", value = var.ai_text_model },
+      { name = "AI_VISION_MODEL", value = var.ai_vision_model }
+    ]
+    secrets = [{ name = "AI_API_KEY", valueFrom = "${aws_secretsmanager_secret.runtime.arn}:AI_API_KEY::" }]
+    logConfiguration = { logDriver = "awslogs", options = { awslogs-group = aws_cloudwatch_log_group.api.name, awslogs-region = var.aws_region, awslogs-stream-prefix = "generation-worker" } }
+  }])
+  tags = local.tags
+}
+resource "aws_ecs_service" "generation_worker" {
+  name = "generation-worker"
+  cluster = aws_ecs_cluster.main.id
+  task_definition = aws_ecs_task_definition.generation_worker.arn
+  desired_count = var.environment == "prod" ? 2 : 1
+  launch_type = "FARGATE"
+  network_configuration { subnets = aws_subnet.private[*], security_groups = [aws_security_group.api.id], assign_public_ip = false }
   tags = local.tags
 }
 resource "aws_ecs_service" "api" {

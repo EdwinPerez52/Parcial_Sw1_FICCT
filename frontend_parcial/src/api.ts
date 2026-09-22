@@ -84,6 +84,25 @@ export const diagramApi = {
   xmiExportUrl: (id: string) => `/api/v1/diagrams/${id}/xmi`,
 };
 
+export type GenerationJobStatus = 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED';
+export interface GenerationArtifactLink { url: string; expiresAt: string }
+export interface GenerationJob {
+  id: string; diagramId: string; versionId: string; sourceRevision: number; requesterName: string;
+  status: GenerationJobStatus; attempt: number; queuedAt: string; startedAt: string | null;
+  completedAt: string | null; expiresAt: string | null; errorCode: string | null; errorMessage: string | null;
+  backend: GenerationArtifactLink | null; mobileSpec: GenerationArtifactLink | null;
+}
+export const generationJobsApi = {
+  create: (diagramId: string, idempotencyKey: string, request: { versionId?: string; groupId?: string; artifactId?: string } = {}) =>
+    raw<GenerationJob>(`/api/v1/diagrams/${diagramId}/generation-jobs`, {
+      method: 'POST', headers: { 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(request),
+    }),
+  list: (diagramId: string) => raw<GenerationJob[]>(`/api/v1/diagrams/${diagramId}/generation-jobs`),
+  get: (diagramId: string, jobId: string) => raw<GenerationJob>(`/api/v1/diagrams/${diagramId}/generation-jobs/${jobId}`),
+  retry: (diagramId: string, jobId: string) => raw<GenerationJob>(`/api/v1/diagrams/${diagramId}/generation-jobs/${jobId}/retry`, { method: 'POST' }),
+  agentSpec: (diagramId: string, jobId: string) => raw<unknown>(`/api/v1/diagrams/${diagramId}/generation-jobs/${jobId}/agent-spec`, { method: 'POST' }),
+};
+
 export interface AssistantProposal {
   proposalId: string;
   provider: string;
@@ -391,7 +410,7 @@ export const agentApi = {
     }
   },
 
-  /** Fetch the agent-spec bundle (spec + Flutter ZIP) from the backend. */
+  /** Legacy endpoint retained for older servers. New flows use generationJobsApi.agentSpec. */
   fetchAgentSpec: async (diagramId: string, versionId?: string): Promise<unknown> => {
     const token = getCsrfToken();
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };

@@ -95,9 +95,9 @@ export function sanitizeOutputPath(requestedPath: string, workspaceRoot: string)
   const home = os.homedir();
   const normalizedWorkspace = path.resolve(workspaceRoot);
 
-  // Must be under home or workspace
-  if (!resolved.startsWith(home + path.sep) && !resolved.startsWith(normalizedWorkspace + path.sep) &&
-      resolved !== normalizedWorkspace) {
+  // Must be under home or workspace.  String-prefix checks would accept paths
+  // such as C:\\Users\\ana-evil when C:\\Users\\ana is allowed.
+  if (!isWithin(resolved, home) && !isWithin(resolved, normalizedWorkspace)) {
     return null;
   }
 
@@ -115,8 +115,28 @@ export function sanitizeOutputPath(requestedPath: string, workspaceRoot: string)
     '/sbin',
   ];
   for (const blocked of blockedPrefixes) {
-    if (resolved.startsWith(blocked)) return null;
+    if (isWithin(resolved, blocked)) return null;
   }
 
   return resolved;
+}
+
+function isWithin(candidate: string, parent: string): boolean {
+  const relative = path.relative(path.resolve(parent), path.resolve(candidate));
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+/** Only local/private HTTP addresses are useful for a generated mobile app. */
+export function validateApiBaseUrl(value: unknown): string | null {
+  if (typeof value !== 'string' || value.length > 200) return null;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'http:' || url.username || url.password || url.pathname !== '/' || url.search || url.hash) return null;
+    const host = url.hostname.toLowerCase();
+    const privateV4 = /^(10\.|127\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[0-1])\.)/.test(host);
+    if (host !== 'localhost' && host !== '::1' && !privateV4) return null;
+    return url.toString().replace(/\/$/, '');
+  } catch {
+    return null;
+  }
 }

@@ -5,7 +5,7 @@ Set-Location $repoRoot
 Write-Host "==> Generando aplicación Flutter en mobile_parcial..." -ForegroundColor Cyan
 Push-Location backend_parcial
 try {
-    .\mvnw.cmd test -Dtest=FlutterGeneratorTest#generatesCanonicalFlutterAppInMobileParcial
+    .\mvnw.cmd test '-Dtest=FlutterGeneratorTest#generatesCanonicalFlutterAppInMobileParcial' -DmaterializeMobile=true
 } finally {
     Pop-Location
 }

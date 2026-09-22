@@ -43,13 +43,15 @@ class _AiAssistantScreenState extends State<AiAssistantScreen>
     super.dispose();
   }
 
-  void _submitTextCommand(String command) {
+  Future<void> _submitTextCommand(String command) async {
     if (command.trim().isEmpty) return;
-    final proposal = AiCommandInterpreter.instance.interpret(
-      command.trim(),
-      source: AiProposalSource.textLocal,
-    );
-    _showProposal(proposal);
+    final proposal = _useRemoteWhenAvailable && _remoteAi.canUseRemoteAi
+        ? await _remoteAi.analyzeTextComplex(command.trim())
+        : AiCommandInterpreter.instance.interpret(
+            command.trim(),
+            source: AiProposalSource.textLocal,
+          );
+    if (mounted) _showProposal(proposal);
   }
 
   Future<void> _toggleVoiceListening() async {
@@ -172,6 +174,15 @@ class _AiAssistantScreenState extends State<AiAssistantScreen>
                   fillColor: Colors.grey.shade50,
                 ),
               ),
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Usar proveedor configurado si hay conexión'),
+                subtitle: const Text('Si falla o no hay red, se usa el intérprete local.'),
+                value: _useRemoteWhenAvailable && _sync.isOnline,
+                onChanged: _sync.isOnline
+                    ? (value) => setState(() => _useRemoteWhenAvailable = value)
+                    : null,
+              ),
               const SizedBox(height: 12),
               ElevatedButton.icon(
                 onPressed: () => _submitTextCommand(_textController.text),
@@ -266,7 +277,7 @@ class _AiAssistantScreenState extends State<AiAssistantScreen>
                     boxShadow: [
                       BoxShadow(
                         color: (isListening ? Colors.red : const Color(0xFF2563EB))
-                            .withOpacity(0.4),
+                            .withValues(alpha: 0.4),
                         blurRadius: isListening ? 20 : 10,
                         spreadRadius: isListening ? 6 : 2,
                       ),

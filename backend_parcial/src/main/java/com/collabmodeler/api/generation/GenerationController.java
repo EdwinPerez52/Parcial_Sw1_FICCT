@@ -147,8 +147,8 @@ public class GenerationController {
     }
 
     /**
-     * Returns a JSON payload for the local agent containing the signed spec (with nonce)
-     * and the Flutter project ZIP encoded as Base64.
+     * Compatibility endpoint. The agent receives only a signed, one-use contract;
+     * source code and the HMAC key must never traverse the browser.
      */
     @PostMapping(value = "/agent-spec", produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<String> getAgentSpec(@PathVariable UUID id,
@@ -159,15 +159,10 @@ public class GenerationController {
         String openapiYaml = openApiGenerator.generateYaml(snapshot, "generated-api");
 
         String agentSpecJson = mobileSpecService.generateAgentSpecJson(snapshot, versionId, openapiYaml);
-        byte[] flutterZip = flutterGenerator.generateZip(snapshot, openapiYaml, snapshot.name() + " App");
-        String flutterZipBase64 = java.util.Base64.getEncoder().encodeToString(flutterZip);
-
         try {
             var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
             var root = new java.util.LinkedHashMap<String, Object>();
             root.put("spec", mapper.readValue(agentSpecJson, java.util.Map.class));
-            root.put("flutterZipBase64", flutterZipBase64);
-            root.put("signingKey", mobileSpecService.getSigningKey());
 
             return ResponseEntity.ok()
                 .contentType(MediaType.APPLICATION_JSON)

@@ -66,7 +66,9 @@ export function runCommand(options: RunOptions): { process: ChildProcess; promis
 
   const child = spawn(executable, spawnArgs, {
     cwd: projectDir,
-    shell: true,
+    // Arguments originate in HTTP requests. Keep the closed command set closed
+    // by never asking a platform shell to interpret them.
+    shell: false,
     env: { ...process.env },
     stdio: ['pipe', 'pipe', 'pipe'],
   });

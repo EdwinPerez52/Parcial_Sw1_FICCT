@@ -225,11 +225,6 @@ public class MobileSpecService {
         }
     }
 
-    /** Returns the signing key so the agent-spec endpoint can include it for local agent verification. */
-    public String getSigningKey() {
-        return signingKey;
-    }
-
     public boolean verifySignature(Map<String, Object> spec) {
         try {
             if (!spec.containsKey("signature")) return false;
@@ -242,6 +237,14 @@ public class MobileSpecService {
         } catch (Exception exception) {
             return false;
         }
+    }
+
+    public String signSpec(Map<String, Object> unsignedSpec) {
+        try {
+            Map<String, Object> value = new LinkedHashMap<>(unsignedSpec); value.remove("signature");
+            value.put("signature", hmacSha256Hex(mapper.writeValueAsString(value), signingKey));
+            return mapper.writerWithDefaultPrettyPrinter().writeValueAsString(value);
+        } catch (Exception exception) { throw new IllegalStateException("No se pudo firmar la especificación", exception); }
     }
 
     private static String sha256Hex(String input) throws Exception {

@@ -24,6 +24,18 @@ public class DiagramVersionService {
         return versions.save(new DiagramVersionEntity(diagramId, entity.getRevision(), label.trim(), entity.getModelJson(), subject, name));
     }
     public List<DiagramVersionEntity> list(UUID diagramId) { return versions.findByDiagramIdOrderByCreatedAtDesc(diagramId); }
+    @Transactional
+    public DiagramVersionEntity findOrCreateForCurrentRevision(UUID diagramId, String subject, String name) {
+        DiagramEntity entity = diagrams.findForUpdate(diagramId).orElseThrow(() -> new NotFoundException("Diagrama no encontrado"));
+        return versions.findFirstByDiagramIdAndSourceRevisionOrderByCreatedAtAsc(diagramId, entity.getRevision())
+            .orElseGet(() -> versions.save(new DiagramVersionEntity(diagramId, entity.getRevision(),
+                "Generación r" + entity.getRevision(), entity.getModelJson(), subject, name)));
+    }
+    public DiagramVersionEntity require(UUID diagramId, UUID versionId) { return find(diagramId, versionId); }
+    @Transactional
+    public void lockDiagram(UUID diagramId) {
+        diagrams.findForUpdate(diagramId).orElseThrow(() -> new NotFoundException("Diagrama no encontrado"));
+    }
     public DiagramDocument preview(UUID diagramId, UUID versionId) {
         try { return mapper.readValue(find(diagramId, versionId).getSnapshotJson(), DiagramDocument.class); }
         catch (Exception exception) { throw new IllegalStateException("No se pudo leer la versión", exception); }

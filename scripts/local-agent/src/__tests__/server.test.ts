@@ -55,6 +55,7 @@ describe('Local Agent Server', () => {
 
   beforeEach(() => {
     resetNonces();
+    process.env.AGENT_SIGNING_KEY = 'test-secret-key-32bytes-for-hmac';
   });
 
   // =========================================================================
@@ -89,14 +90,14 @@ describe('Local Agent Server', () => {
   // =========================================================================
   describe('POST /api/generate', () => {
     it('rejects request without Origin header', async () => {
-      const res = await request(server, 'POST', '/api/generate', { spec: {}, flutterZipBase64: '', signingKey: '' });
+      const res = await request(server, 'POST', '/api/generate', { spec: {} });
       expect(res.status).toBe(403);
       const data = JSON.parse(res.body);
       expect(data.code).toBe('FORBIDDEN_ORIGIN');
     });
 
     it('rejects request from external origin', async () => {
-      const res = await request(server, 'POST', '/api/generate', { spec: {}, flutterZipBase64: '', signingKey: '' }, {
+      const res = await request(server, 'POST', '/api/generate', { spec: {} }, {
         Origin: 'http://evil.com',
       });
       expect(res.status).toBe(403);
@@ -119,8 +120,6 @@ describe('Local Agent Server', () => {
       };
       const res = await request(server, 'POST', '/api/generate', {
         spec,
-        flutterZipBase64: 'dGVzdA==',
-        signingKey: 'test-key',
       }, {
         Origin: 'http://localhost:5173',
       });
@@ -149,8 +148,6 @@ describe('Local Agent Server', () => {
       // Request with consumed nonce — should be rejected immediately with 409
       const res = await request(server, 'POST', '/api/generate', {
         spec,
-        flutterZipBase64: 'dGVzdA==',
-        signingKey,
       }, {
         Origin: 'http://localhost:5173',
       });
@@ -198,6 +195,16 @@ describe('Local Agent Server', () => {
       expect(res.status).toBe(400);
       const data = JSON.parse(res.body);
       expect(data.code).toBe('INVALID_PATH');
+    });
+
+    it('rejects a public API URL and a shell-like device id', async () => {
+      const headers = { Origin: 'http://localhost:5173' };
+      const publicUrl = await request(server, 'POST', '/api/run', { projectDir: '.', action: 'flutter-run', apiBaseUrl: 'https://example.com' }, headers);
+      expect(publicUrl.status).toBe(400);
+      expect(JSON.parse(publicUrl.body).code).toBe('INVALID_API_URL');
+      const dangerousDevice = await request(server, 'POST', '/api/run', { projectDir: '.', action: 'flutter-run', deviceId: 'x & whoami' }, headers);
+      expect(dangerousDevice.status).toBe(400);
+      expect(JSON.parse(dangerousDevice.body).code).toBe('INVALID_DEVICE');
     });
   });
 

@@ -5,7 +5,7 @@ import { AlertCircle, Bot, Camera, CheckCircle2, CheckSquare, Cloud, Download, F
 import { ClassNode } from './ClassNode';
 import { PropertyPanel } from './PropertyPanel';
 import { useDiagramStore } from './store';
-import { AgentDevice, AgentSseEvent, AgentStatus, ApiError, AssistantProposal, ImageProposal, XmiImportPreview, agentApi, analyzeDiagramImage, assistantApi, diagramApi, downloadGeneratedBackend, downloadGeneratedFlutter, downloadMobileSpec, downloadXmi, previewXmi } from './api';
+import { AgentDevice, AgentSseEvent, AgentStatus, ApiError, AssistantProposal, GenerationJob, ImageProposal, XmiImportPreview, agentApi, analyzeDiagramImage, assistantApi, diagramApi, downloadXmi, generationJobsApi, previewXmi } from './api';
 import { SpeechSession, SpeechStatus } from './speech';
 import { buildImageImport, optimizeImageForAnalysis } from './imageImport';
 import { cardinalities, scalarTypes } from './domain';
@@ -91,6 +91,7 @@ export default function App({ projectId, userName, role, onBack, onLogout }: { p
   const [generatingBackend, setGeneratingBackend] = useState(false);
   const [generatingSpec, setGeneratingSpec] = useState(false);
   const [generatingFlutter, setGeneratingFlutter] = useState(false);
+  const [generationJob, setGenerationJob] = useState<GenerationJob | null>(null);
   const [agentModalOpen, setAgentModalOpen] = useState(false);
   const [agentStatus, setAgentStatus] = useState<AgentStatus | null>(null);
   const [agentPhase, setAgentPhase] = useState<'checking' | 'fetching' | 'generating' | 'ready' | 'running' | 'done' | 'error'>('checking');
@@ -170,16 +171,19 @@ export default function App({ projectId, userName, role, onBack, onLogout }: { p
     setGeneratingBackend(true);
     setGenerationFeedback(null);
     try {
-      const filename = await downloadGeneratedBackend(diagramId);
+      // Reuse the key for this immutable revision so a retry after a lost HTTP
+      // response returns the original job instead of doing expensive work twice.
+      const storageKey = `collab-modeler:generation:${diagramId}:${diagram.revision}`;
+      const idempotencyKey = localStorage.getItem(storageKey) || crypto.randomUUID();
+      localStorage.setItem(storageKey, idempotencyKey);
+      const job = await generationJobsApi.create(diagramId, idempotencyKey, { groupId: 'com.generated', artifactId: 'generated-api' });
+      setGenerationJob(job);
       setGenerationFeedback({
-        type: 'success',
-        title: 'Backend generado',
-        message: `El archivo ZIP del backend Spring Boot se descargó exitosamente (${filename}).`,
-        downloadUrl: diagramApi.generationUrl(diagramId),
-        downloadName: filename,
+        type: 'info',
+        title: 'Generación encolada',
+        message: `Trabajo ${job.id.slice(0, 8)} vinculado a la revisión ${job.sourceRevision}. Puedes cerrar el navegador: continuará en segundo plano.`,
       });
-      setAssistantMessage(`Backend generado: ${filename}`);
-      setTimeout(() => setGenerationFeedback(prev => prev?.type === 'success' ? null : prev), 8000);
+      setAssistantMessage('Generación encolada.');
     } catch (cause) {
       const err = cause instanceof ApiError ? cause : new ApiError(0, 'UNKNOWN', cause instanceof Error ? cause.message : 'No se pudo generar el backend');
       const elementId = (err.details?.elementId as string | undefined);
@@ -202,6 +206,21 @@ export default function App({ projectId, userName, role, onBack, onLogout }: { p
       setGeneratingBackend(false);
     }
   };
+
+  useEffect(() => {
+    if (!diagramId || !generationJob || ['SUCCEEDED', 'FAILED'].includes(generationJob.status)) return;
+    const timer = window.setInterval(() => {
+      void generationJobsApi.get(diagramId, generationJob.id).then(job => {
+        setGenerationJob(job);
+        if (job.status === 'SUCCEEDED') {
+          setGenerationFeedback({ type: 'success', title: 'Artefactos listos', message: `Backend y especificación móvil de la revisión ${job.sourceRevision}. Los enlaces expiran pronto.`, downloadUrl: job.backend?.url, downloadName: 'Backend ZIP' });
+        } else if (job.status === 'FAILED') {
+          setGenerationFeedback({ type: 'error', title: 'La generación falló', message: job.errorMessage || 'Puedes reintentar el trabajo sin crear otro.' });
+        }
+      }).catch(() => undefined);
+    }, 1500);
+    return () => window.clearInterval(timer);
+  }, [diagramId, generationJob]);
 
   const autoFixMissingPks = useCallback(() => {
     const childIds = new Set(diagram.generalizations.map(g => g.childId));
@@ -243,18 +262,9 @@ export default function App({ projectId, userName, role, onBack, onLogout }: { p
   const generateSpec = async () => {
     if (!diagramId || generatingSpec) return;
     setGeneratingSpec(true);
-    setGenerationFeedback(null);
     try {
-      const filename = await downloadMobileSpec(diagramId);
-      setGenerationFeedback({
-        type: 'success',
-        title: 'Especificación móvil descargada',
-        message: `El archivo ${filename} firmado se descargó exitosamente.`,
-        downloadUrl: diagramApi.mobileSpecUrl(diagramId),
-        downloadName: filename,
-      });
-      setAssistantMessage(`Especificación descargada: ${filename}`);
-      setTimeout(() => setGenerationFeedback(prev => prev?.type === 'success' ? null : prev), 8000);
+      if (generationJob?.status === 'SUCCEEDED' && generationJob.mobileSpec) window.open(generationJob.mobileSpec.url, '_blank', 'noopener');
+      else await generate();
     } catch (cause) {
       const err = cause instanceof ApiError ? cause : new ApiError(0, 'UNKNOWN', cause instanceof Error ? cause.message : 'No se pudo descargar la especificación móvil');
       setGenerationFeedback({
@@ -271,18 +281,9 @@ export default function App({ projectId, userName, role, onBack, onLogout }: { p
   const generateFlutter = async () => {
     if (!diagramId || generatingFlutter) return;
     setGeneratingFlutter(true);
-    setGenerationFeedback(null);
     try {
-      const filename = await downloadGeneratedFlutter(diagramId, undefined, diagram.name);
-      setGenerationFeedback({
-        type: 'success',
-        title: 'App Flutter generada',
-        message: `El proyecto Flutter completo se descargó exitosamente (${filename}).`,
-        downloadUrl: diagramApi.flutterGenerationUrl(diagramId),
-        downloadName: filename,
-      });
-      setAssistantMessage(`Proyecto Flutter generado: ${filename}`);
-      setTimeout(() => setGenerationFeedback(prev => prev?.type === 'success' ? null : prev), 8000);
+      if (!generationJob || generationJob.status !== 'SUCCEEDED') { await generate(); setGenerationFeedback({ type: 'info', title: 'Preparando la especificación móvil', message: 'Cuando el trabajo termine, abre el agente local para generar Flutter en esta computadora.' }); }
+      else await openAgentModal();
     } catch (cause) {
       const err = cause instanceof ApiError ? cause : new ApiError(0, 'UNKNOWN', cause instanceof Error ? cause.message : 'No se pudo generar la app Flutter');
       const elementId = (err.details?.elementId as string | undefined);
@@ -337,7 +338,9 @@ export default function App({ projectId, userName, role, onBack, onLogout }: { p
       if (status.adbAvailable) setAgentProgress(prev => [...prev, `ADB ${status.adbVersion || 'disponible'}`]);
 
       // Fetch agent-spec bundle from backend
-      const bundle = await agentApi.fetchAgentSpec(diagramId);
+      const latest = generationJob?.status === 'SUCCEEDED' ? generationJob : (await generationJobsApi.list(diagramId)).find(job => job.status === 'SUCCEEDED');
+      if (!latest) throw new ApiError(409, 'GENERATION_NOT_READY', 'Primero espera a que termine un trabajo de generación.');
+      const bundle = await generationJobsApi.agentSpec(diagramId, latest.id);
       setAgentProgress(prev => [...prev, '✓ Especificación firmada obtenida del backend']);
 
       // Send to agent for generation
@@ -567,11 +570,11 @@ export default function App({ projectId, userName, role, onBack, onLogout }: { p
           <button className="primary" onClick={generate} disabled={!diagramId || generatingBackend}>
             {generatingBackend ? <><Loader2 size={16} className="spinning" /> Generando backend…</> : 'Generar backend'}
           </button>
-          <button className="secondary" onClick={generateSpec} disabled={!diagramId || generatingSpec} title="Descargar modeler-mobile-spec.json firmado para Flutter">
-            {generatingSpec ? <><Loader2 size={16} className="spinning" /> Descargando…</> : <><Download size={16} /> Spec móvil</>}
+          <button className="secondary" onClick={generateSpec} disabled={!diagramId || generatingSpec} title="Descargar la especificación firmada del último trabajo terminado">
+            {generatingSpec ? <><Loader2 size={16} className="spinning" /> Consultando…</> : <><Download size={16} /> Spec móvil</>}
           </button>
-          <button className="secondary" onClick={generateFlutter} disabled={!diagramId || generatingFlutter} title="Generar y descargar aplicación Flutter (ZIP)">
-            {generatingFlutter ? <><Loader2 size={16} className="spinning" /> Generando Flutter…</> : <><Smartphone size={16} /> App Flutter (ZIP)</>}
+          <button className="secondary" onClick={generateFlutter} disabled={!diagramId || generatingFlutter} title="Generar Flutter localmente desde la especificación firmada">
+            {generatingFlutter ? <><Loader2 size={16} className="spinning" /> Preparando…</> : <><Smartphone size={16} /> App Flutter local</>}
           </button>
           <button className="primary agent-button" onClick={openAgentModal} disabled={!diagramId} title="Generar Flutter en vivo y ejecutar en dispositivo móvil">
             <Monitor size={16} /> Generar App Móvil
@@ -600,6 +603,16 @@ export default function App({ projectId, userName, role, onBack, onLogout }: { p
                 >
                   <Download size={14} /> Descargar archivo de nuevo ({generationFeedback.downloadName || 'ZIP'})
                 </a>
+              </div>
+            )}
+            {generationJob?.status === 'SUCCEEDED' && generationJob.mobileSpec && (
+              <div className="notification-actions">
+                <a href={generationJob.mobileSpec.url} className="action-pill secondary" style={{ textDecoration: 'none' }}><Download size={14} /> Descargar especificación móvil</a>
+              </div>
+            )}
+            {generationJob?.status === 'FAILED' && diagramId && (
+              <div className="notification-actions">
+                <button type="button" className="action-pill primary" onClick={() => void generationJobsApi.retry(diagramId, generationJob.id).then(setGenerationJob).catch(cause => setAssistantMessage(cause instanceof Error ? cause.message : 'No se pudo reintentar.'))}>Reintentar trabajo</button>
               </div>
             )}
             {generationFeedback.canAutoFixPk && (

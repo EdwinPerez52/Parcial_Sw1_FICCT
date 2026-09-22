@@ -60,6 +60,13 @@ Flyway es la única fuente del esquema y Hibernate usa `ddl-auto=validate`. Las 
 
 ## Generador Spring Boot y Especificación Móvil
 
+### Trabajos asíncronos de generación
+
+- `generation_jobs` es el registro durable de la solicitud: revisión inmutable, solicitante, clave de idempotencia, intento, estado, error seguro y fechas. La clave única `(diagram_id, requester_subject, idempotency_key)` evita trabajos duplicados por reintentos de red.
+- La API crea/consulta/reintenta trabajos bajo `/api/v1/diagrams/{diagramId}/generation-jobs`. Los artefactos solo se publican al pasar a `SUCCEEDED`; los endpoints verifican membresía además de una firma HMAC con expiración corta.
+- En local, un listener `AFTER_COMMIT` ejecuta el worker sin depender del navegador y `EncryptedLocalArtifactStorage` conserva los bytes cifrados con AES-GCM. En producción, el evento se publica a SQS, un servicio ECS worker separado reclama el trabajo y `S3ArtifactStorage` usa cifrado SSE-S3 y claves aleatorias.
+- Un trabajo emite exactamente un backend ZIP y un `modeler-mobile-spec.json` firmado desde el mismo `versionId`. El agente local recibe una variante con nonce de un solo uso y materializa Flutter en la computadora; nunca se almacena Flutter dentro del ZIP.
+
 - **Validación previa estricta**: el validador inspecciona identificadores, tipos escalares y enumerados, claves primarias únicas, referencias válidas, cardinalidades UML y ciclos de herencia. Cualquier inconsistencia emite `ModelValidationException` con el UUID exacto del elemento infractor.
 - **Generación desde versiones inmutables**: la generación del backend y de la especificación móvil se basa en hitos o versiones persistidas (`DiagramVersionEntity`), garantizando consistencia determinista entre el código generado y la revisión del modelo.
 - **Arquitectura del backend generado**:
@@ -109,10 +116,10 @@ El agente local es un servidor Node.js/TypeScript liviano que permite generar y 
 
 ### Backend: Endpoint auxiliar
 
-`POST /api/v1/diagrams/{id}/agent-spec` devuelve un JSON con:
+`POST /api/v1/diagrams/{id}/generation-jobs/{jobId}/agent-spec` devuelve un JSON con:
 - `spec`: la `modeler-mobile-spec.json` firmada con HMAC-SHA256, incluyendo un `nonce` UUID de un solo uso.
-- `flutterZipBase64`: el proyecto Flutter completo codificado en Base64.
-- `signingKey`: la clave de firma para que el agente pueda verificar la integridad.
+
+El código Flutter se materializa en la computadora desde esa especificación. La clave de firma no se transmite al navegador: `AGENT_SIGNING_KEY` se provisiona en el entorno del agente y coincide con `MOBILE_SPEC_SECRET` del backend.
 
 ### Seguridad
 
@@ -163,3 +170,12 @@ Todas las operaciones locales de escritura (`create`, `update`, `delete`) en los
 - Persiste tokens JWT de acceso (`auth_access_token`) y de refresco (`auth_refresh_token`).
 - `ApiClient` intercepta respuestas HTTP 401 y renueva automáticamente el token de acceso invocando `/api/auth/refresh` sin forzar al usuario a iniciar sesión nuevamente.
 
+## IA local móvil: texto, voz y fotografía (Incremento 19)
+
+- `AiCommandInterpreter` transforma lenguaje natural en `AiCrudProposal`; `AiEntityRegistry` se genera desde el diagrama y centraliza nombres, tipos, obligatoriedad y enumeraciones.
+- `SpeechRecognitionService` usa el reconocedor del sistema y entrega el resultado final al mismo intérprete. La disponibilidad offline depende del paquete de idioma instalado en Android.
+- `LocalOcrService` valida tamaño y firma mágica, ejecuta ML Kit Text Recognition latino en el dispositivo y convierte texto/códigos/valores en una propuesta de formulario o búsqueda.
+- La vista previa es la única entrada a `AiEntityRegistry.execute`. El ejecutor vuelve a validar al confirmar para impedir que una propuesta manipulada escriba datos inválidos.
+- Crear, editar y eliminar usan `OutboxService`: caché optimista y operación idempotente se guardan atómicamente en SQLite. La cancelación no invoca el ejecutor.
+- `/api/v1/ai/mobile-analyze` acepta opcionalmente un comando o una imagen autenticados cuando existe proveedor y red. El cliente revalida la respuesta; ante fallo vuelve inmediatamente al flujo local.
+- Los logs contienen solo estados sanitizados. Imágenes, audio, tokens y texto reconocido no se registran ni se persisten como telemetría.

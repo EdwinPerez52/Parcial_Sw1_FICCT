@@ -57,6 +57,16 @@ public class FlutterGenerator {
         files.put("lib/core/widgets/relation_picker.dart", relationPicker());
         files.put("lib/core/widgets/sync_status_badge.dart", syncStatusBadge(pubName));
 
+        // Local-first mobile assistant. Its registry is generated from the same
+        // immutable diagram used by forms and repositories.
+        files.put("lib/core/ai/ai_models.dart", aiModels());
+        files.put("lib/core/ai/ai_entity_registry.dart", aiEntityRegistry(diagram, pubName));
+        files.put("lib/core/ai/ai_command_interpreter.dart", aiCommandInterpreter(pubName));
+        files.put("lib/core/ai/speech_recognition_service.dart", speechRecognitionService(pubName));
+        files.put("lib/core/ai/local_ocr_service.dart", localOcrService(pubName));
+        files.put("lib/core/ai/remote_ai_service.dart", remoteAiService(pubName));
+        files.put("lib/presentation/screens/ai/ai_assistant_screen.dart", aiAssistantScreen(pubName));
+
         // 3. Auth Data & State
         files.put("lib/data/models/auth_models.dart", authModels());
         files.put("lib/data/repositories/auth_repository.dart", authRepository(pubName));
@@ -151,6 +161,9 @@ public class FlutterGenerator {
           path: any
           flutter_secure_storage: any
           uuid: any
+          image_picker: any
+          speech_to_text: any
+          google_mlkit_text_recognition: ^0.17.1
 
         dev_dependencies:
           flutter_test:
@@ -4100,7 +4113,389 @@ public class FlutterGenerator {
     }
 
     // =========================================================================
-    // 7. HOME DASHBOARD & MAIN ENTRYPOINT
+    // 7. LOCAL-FIRST AI ASSISTANT
+    // =========================================================================
+
+    private String aiModels() {
+        return """
+        enum AiCrudAction { create, update, delete, search }
+        enum AiProposalSource { textLocal, voiceLocal, ocrLocal, remoteAi }
+
+        class AiCrudProposal {
+          final AiCrudAction action;
+          final String entityType;
+          final String? recordId;
+          final Map<String, dynamic> payload;
+          final List<String> validationErrors;
+          final AiProposalSource source;
+          final double confidence;
+          const AiCrudProposal({required this.action, required this.entityType, this.recordId,
+            this.payload = const {}, this.validationErrors = const [], required this.source,
+            this.confidence = 1});
+          bool get isValid => validationErrors.isEmpty;
+          bool get isDestructive => action == AiCrudAction.delete;
+        }
+        """;
+    }
+
+    private String aiEntityRegistry(DiagramDocument diagram, String pubName) {
+        StringBuilder entities = new StringBuilder();
+        for (var item : diagram.classes()) {
+            StringBuilder fields = new StringBuilder();
+            for (var attribute : item.attributes()) {
+                if (attribute.primaryKey()) continue;
+                List<String> values = diagram.enumerations().stream()
+                    .filter(en -> en.name().equals(attribute.type()))
+                    .findFirst()
+                    .map(en -> en.values().stream().map(value -> "'" + value.name().replace("'", "") + "'").toList())
+                    .orElse(List.of());
+                fields.append("AiField('").append(attribute.name().replace("'", ""))
+                    .append("', '").append(attribute.type().replace("'", ""))
+                    .append("', ").append(attribute.required()).append(", const [")
+                    .append(String.join(",", values)).append("]),");
+            }
+            entities.append("AiEntity('").append(item.name().replace("'", ""))
+                .append("', '").append(sqlName(item.name())).append("', const [")
+                .append(fields).append("]),");
+        }
+        return """
+        import 'dart:convert';
+        import 'package:uuid/uuid.dart';
+        import 'package:%s/core/ai/ai_models.dart';
+        import 'package:%s/core/database/app_database.dart';
+        import 'package:%s/core/sync/outbox_service.dart';
+
+        class AiField {
+          final String name;
+          final String type;
+          final bool required;
+          final List<String> enumValues;
+          const AiField(this.name, this.type, this.required, this.enumValues);
+          String? validate(dynamic value) {
+            if (value == null || value.toString().trim().isEmpty) {
+              return required ? 'El campo "$name" es obligatorio' : null;
+            }
+            final text = value.toString().trim();
+            if (['Integer','Long'].contains(type) && int.tryParse(text) == null) return 'El campo "$name" debe ser entero';
+            if (['Decimal','Double','Float'].contains(type) && double.tryParse(text) == null) return 'El campo "$name" debe ser numérico';
+            if (enumValues.isNotEmpty && !enumValues.contains(text.toUpperCase())) return 'Valor inválido para "$name"';
+            return null;
+          }
+        }
+
+        class AiEntity {
+          final String name;
+          final String tableName;
+          final List<AiField> fields;
+          const AiEntity(this.name, this.tableName, this.fields);
+          List<String> validate(Map<String, dynamic> payload, {required bool create}) {
+            final errors = <String>[];
+            final allowed = fields.map((field) => field.name).toSet();
+            for (final key in payload.keys) {
+              if (!allowed.contains(key)) errors.add('El campo "$key" no pertenece a $name');
+            }
+            for (final field in fields) {
+              if (!create && !payload.containsKey(field.name)) continue;
+              final error = field.validate(payload[field.name]);
+              if (error != null) errors.add(error);
+            }
+            return errors;
+          }
+        }
+
+        class AiEntityRegistry {
+          static final instance = AiEntityRegistry._();
+          AiEntityRegistry._();
+          static const _uuid = Uuid();
+          final entities = const <AiEntity>[%s];
+          AiEntity? find(String name) {
+            final normalized = name.toLowerCase();
+            for (final entity in entities) {
+              if (entity.name.toLowerCase() == normalized || entity.tableName == normalized) return entity;
+            }
+            return null;
+          }
+          List<String> validate(AiCrudProposal proposal) {
+            final entity = find(proposal.entityType);
+            if (entity == null) return ['Entidad no reconocida'];
+            final errors = <String>[];
+            if (proposal.action == AiCrudAction.create || proposal.action == AiCrudAction.update) {
+              errors.addAll(entity.validate(proposal.payload, create: proposal.action == AiCrudAction.create));
+            }
+            if ((proposal.action == AiCrudAction.update || proposal.action == AiCrudAction.delete) &&
+                (proposal.recordId == null || proposal.recordId!.trim().isEmpty)) errors.add('Falta el identificador');
+            return errors;
+          }
+          Future<dynamic> execute(AiCrudProposal proposal) async {
+            final errors = {...proposal.validationErrors, ...validate(proposal)};
+            if (errors.isNotEmpty) throw StateError(errors.join('. '));
+            final entity = find(proposal.entityType)!;
+            final outbox = OutboxService.instance;
+            final db = AppDatabase.instance;
+            switch (proposal.action) {
+              case AiCrudAction.create:
+                final id = _uuid.v4();
+                return outbox.enqueueCreate(entity: entity.tableName, recordId: id, payload: proposal.payload);
+              case AiCrudAction.update:
+                final current = await db.getCachedEntity(entity.tableName, proposal.recordId!);
+                if (current == null) throw StateError('El registro debe existir en el caché para editarlo sin conexión');
+                final merged = Map<String, dynamic>.from(current)..removeWhere((key, _) => key.startsWith('_'))..addAll(proposal.payload);
+                return outbox.enqueueUpdate(entity: entity.tableName, recordId: proposal.recordId!, payload: merged,
+                  baseVersion: current['_version'] as int? ?? 1);
+              case AiCrudAction.delete:
+                final current = await db.getCachedEntity(entity.tableName, proposal.recordId!);
+                return outbox.enqueueDelete(entity: entity.tableName, recordId: proposal.recordId!,
+                  baseVersion: current?['_version'] as int? ?? 1);
+              case AiCrudAction.search:
+                final rows = await db.getCachedEntities(entity.tableName);
+                final query = (proposal.recordId ?? '').toLowerCase();
+                return rows.where((row) => jsonEncode(row).toLowerCase().contains(query)).toList();
+            }
+          }
+        }
+        """.formatted(pubName, pubName, pubName, entities.toString());
+    }
+
+    private String aiCommandInterpreter(String pubName) {
+        return """
+        import 'package:%s/core/ai/ai_models.dart';
+        import 'package:%s/core/ai/ai_entity_registry.dart';
+
+        class AiCommandInterpreter {
+          static final instance = AiCommandInterpreter._();
+          AiCommandInterpreter._();
+          AiCrudProposal interpret(String input, {AiProposalSource source = AiProposalSource.textLocal}) {
+            final text = input.trim();
+            final lower = text.toLowerCase();
+            final action = lower.contains(RegExp(r'\\b(eliminar|borrar|quita)\\b')) ? AiCrudAction.delete
+              : lower.contains(RegExp(r'\\b(editar|actualizar|modificar)\\b')) ? AiCrudAction.update
+              : lower.contains(RegExp(r'\\b(buscar|consultar|listar|ver)\\b')) ? AiCrudAction.search : AiCrudAction.create;
+            AiEntity? entity;
+            for (final candidate in AiEntityRegistry.instance.entities) {
+              if (lower.contains(candidate.name.toLowerCase()) || lower.contains(candidate.tableName)) { entity = candidate; break; }
+            }
+            if (entity == null) return AiCrudProposal(action: action, entityType: '', source: source,
+              validationErrors: const ['No se pudo identificar la entidad']);
+            String? recordId;
+            if (action == AiCrudAction.update || action == AiCrudAction.delete || action == AiCrudAction.search) {
+              final match = RegExp('(?:id\\\\s+|${entity.tableName}\\\\s+)([A-Za-z0-9_-]+)', caseSensitive: false).firstMatch(text);
+              recordId = match?.group(1);
+            }
+            final payload = <String, dynamic>{};
+            final keys = entity.fields.map((field) => RegExp.escape(field.name)).join('|');
+            for (final field in entity.fields) {
+              final match = RegExp('\\\\b${RegExp.escape(field.name)}[\\\\s:=]+(.+?)(?=\\\\s+(?:$keys)[\\\\s:=]|[,;]|\\$)', caseSensitive: false).firstMatch(text);
+              if (match == null) continue;
+              final raw = match.group(1)!.trim();
+              if (['Integer','Long'].contains(field.type)) payload[field.name] = int.tryParse(raw) ?? raw;
+              else if (['Decimal','Double','Float'].contains(field.type)) payload[field.name] = double.tryParse(raw.replaceAll(',', '.')) ?? raw;
+              else if (field.enumValues.isNotEmpty) payload[field.name] = raw.toUpperCase();
+              else payload[field.name] = raw;
+            }
+            final draft = AiCrudProposal(action: action, entityType: entity.name, recordId: recordId, payload: payload, source: source);
+            return AiCrudProposal(action: action, entityType: entity.name, recordId: recordId, payload: payload,
+              validationErrors: AiEntityRegistry.instance.validate(draft), source: source, confidence: .9);
+          }
+        }
+        """.formatted(pubName, pubName);
+    }
+
+    private String speechRecognitionService(String pubName) {
+        return """
+        import 'package:speech_to_text/speech_to_text.dart' as stt;
+        import 'package:%s/core/ai/ai_command_interpreter.dart';
+        import 'package:%s/core/ai/ai_models.dart';
+        class SpeechRecognitionService {
+          static final instance = SpeechRecognitionService._();
+          SpeechRecognitionService._();
+          final _speech = stt.SpeechToText();
+          bool get listening => _speech.isListening;
+          Future<bool> initialize() => _speech.initialize();
+          Future<void> listen(void Function(AiCrudProposal) onProposal) async {
+            if (!await initialize()) return;
+            await _speech.listen(onResult: (result) {
+              if (result.finalResult) onProposal(AiCommandInterpreter.instance.interpret(result.recognizedWords,
+                source: AiProposalSource.voiceLocal));
+            }, listenOptions: stt.SpeechListenOptions(localeId: 'es_ES', onDevice: true,
+              cancelOnError: true, listenFor: const Duration(seconds: 20), pauseFor: const Duration(seconds: 3)));
+          }
+          Future<void> stop() => _speech.stop();
+        }
+        """.formatted(pubName, pubName);
+    }
+
+    private String localOcrService(String pubName) {
+        return """
+        import 'dart:typed_data';
+        import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
+        import 'package:image_picker/image_picker.dart';
+        import 'package:%s/core/ai/ai_entity_registry.dart';
+        import 'package:%s/core/ai/ai_models.dart';
+        class LocalOcrService {
+          static final instance = LocalOcrService._();
+          LocalOcrService._();
+          final _picker = ImagePicker();
+          Future<XFile?> pick(ImageSource source) => _picker.pickImage(source: source, imageQuality: 85, maxWidth: 1920);
+          String? mime(Uint8List bytes) {
+            if (bytes.length >= 8 && bytes[0] == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4e && bytes[3] == 0x47) return 'image/png';
+            if (bytes.length >= 3 && bytes[0] == 0xff && bytes[1] == 0xd8 && bytes[2] == 0xff) return 'image/jpeg';
+            if (bytes.length >= 12 && bytes[0] == 0x52 && bytes[1] == 0x49 && bytes[8] == 0x57 && bytes[9] == 0x45) return 'image/webp';
+            return null;
+          }
+          Future<AiCrudProposal> extract(XFile file) async {
+            final bytes = await file.readAsBytes();
+            if (bytes.isEmpty || bytes.length > 10 * 1024 * 1024 || mime(bytes) == null) return const AiCrudProposal(
+              action: AiCrudAction.search, entityType: '', source: AiProposalSource.ocrLocal,
+              validationErrors: ['Imagen inválida o mayor a 10 MB']);
+            final recognizer = TextRecognizer(script: TextRecognitionScript.latin);
+            try {
+              final result = await recognizer.processImage(InputImage.fromFilePath(file.path));
+              return parse(result.text);
+            } finally { await recognizer.close(); }
+          }
+          AiCrudProposal parse(String text) {
+            AiEntity? best;
+            var score = 0;
+            final lower = text.toLowerCase();
+            for (final entity in AiEntityRegistry.instance.entities) {
+              var current = lower.contains(entity.name.toLowerCase()) ? 2 : 0;
+              current += entity.fields.where((field) => lower.contains(field.name.toLowerCase())).length;
+              if (current > score) { best = entity; score = current; }
+            }
+            if (best == null) return const AiCrudProposal(action: AiCrudAction.search, entityType: '',
+              source: AiProposalSource.ocrLocal, validationErrors: ['No se detectaron campos conocidos']);
+            final payload = <String, dynamic>{};
+            for (final field in best.fields) {
+              final match = RegExp('(?:^|\\\\n)\\\\s*${RegExp.escape(field.name)}[\\\\s:#-]+([^\\\\n]+)', caseSensitive: false).firstMatch(text);
+              if (match != null) {
+                final raw = match.group(1)!.trim();
+                if (['Integer','Long'].contains(field.type)) payload[field.name] = int.tryParse(raw) ?? raw;
+                else if (['Decimal','Double','Float'].contains(field.type)) payload[field.name] = double.tryParse(raw.replaceAll(',', '.')) ?? raw;
+                else if (field.enumValues.isNotEmpty) payload[field.name] = raw.toUpperCase();
+                else payload[field.name] = raw;
+              }
+            }
+            final draft = AiCrudProposal(action: AiCrudAction.create, entityType: best.name, payload: payload, source: AiProposalSource.ocrLocal);
+            return AiCrudProposal(action: draft.action, entityType: best.name, payload: payload, source: draft.source,
+              validationErrors: AiEntityRegistry.instance.validate(draft), confidence: .85);
+          }
+        }
+        """.formatted(pubName, pubName);
+    }
+
+    private String aiAssistantScreen(String pubName) {
+        return """
+        import 'package:flutter/material.dart';
+        import 'package:image_picker/image_picker.dart';
+        import 'package:%s/core/ai/ai_command_interpreter.dart';
+        import 'package:%s/core/ai/ai_entity_registry.dart';
+        import 'package:%s/core/ai/ai_models.dart';
+        import 'package:%s/core/ai/local_ocr_service.dart';
+        import 'package:%s/core/ai/remote_ai_service.dart';
+        import 'package:%s/core/ai/speech_recognition_service.dart';
+        import 'package:%s/core/sync/sync_service.dart';
+        class AiAssistantScreen extends StatefulWidget { const AiAssistantScreen({super.key});
+          @override State<AiAssistantScreen> createState() => _AiAssistantScreenState(); }
+        class _AiAssistantScreenState extends State<AiAssistantScreen> {
+          final controller = TextEditingController();
+          bool useRemote = false;
+          Future<void> preview(AiCrudProposal proposal) async {
+            final confirmed = await showDialog<bool>(context: context, builder: (context) => AlertDialog(
+              title: Text('${proposal.action.name.toUpperCase()} ${proposal.entityType}'),
+              content: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start,
+                children: [Text(proposal.payload.toString()), ...proposal.validationErrors.map((error) => Text(error, style: const TextStyle(color: Colors.red)))])),
+              actions: [TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
+                FilledButton(onPressed: proposal.isValid ? () => Navigator.pop(context, true) : null, child: const Text('Confirmar'))]));
+            if (confirmed == true) {
+              await AiEntityRegistry.instance.execute(proposal);
+              if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Operación guardada localmente y encolada')));
+            }
+          }
+          Future<void> photo(ImageSource source) async { final file = await LocalOcrService.instance.pick(source);
+            if (file != null) { final proposal = useRemote && SyncService.instance.isOnline
+              ? await RemoteAiService.instance.image(file) : await LocalOcrService.instance.extract(file);
+              await preview(proposal); } }
+          Future<void> submit() async { final local = AiCommandInterpreter.instance.interpret(controller.text);
+            await preview(useRemote && SyncService.instance.isOnline
+              ? await RemoteAiService.instance.text(controller.text) : local); }
+          @override Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text('Asistente local')),
+            body: ListView(padding: const EdgeInsets.all(16), children: [TextField(controller: controller, maxLines: 3,
+              decoration: const InputDecoration(labelText: 'Comando CRUD')),
+              SwitchListTile(title: const Text('Análisis remoto opcional'), value: useRemote && SyncService.instance.isOnline,
+                onChanged: SyncService.instance.isOnline ? (value) => setState(() => useRemote = value) : null),
+              FilledButton.icon(onPressed: submit, icon: const Icon(Icons.text_fields), label: const Text('Proponer')),
+              FilledButton.icon(onPressed: () => SpeechRecognitionService.instance.listen(preview), icon: const Icon(Icons.mic), label: const Text('Hablar')),
+              FilledButton.icon(onPressed: () => photo(ImageSource.camera), icon: const Icon(Icons.camera_alt), label: const Text('Fotografiar y extraer')),
+              OutlinedButton.icon(onPressed: () => photo(ImageSource.gallery), icon: const Icon(Icons.photo_library), label: const Text('Elegir imagen')),
+              const Text('Nada se modifica hasta confirmar. No se ejecuta código ni SQL.') ]));
+        }
+        """.formatted(pubName, pubName, pubName, pubName, pubName, pubName, pubName);
+    }
+
+    private String remoteAiService(String pubName) {
+        return """
+        import 'dart:convert';
+        import 'package:http/http.dart' as http;
+        import 'package:image_picker/image_picker.dart';
+        import 'package:%s/core/ai/ai_command_interpreter.dart';
+        import 'package:%s/core/ai/ai_entity_registry.dart';
+        import 'package:%s/core/ai/ai_models.dart';
+        import 'package:%s/core/ai/local_ocr_service.dart';
+        import 'package:%s/core/api/api_client.dart';
+        import 'package:%s/core/config/app_config.dart';
+        import 'package:%s/core/sync/sync_service.dart';
+        class RemoteAiService {
+          static final instance = RemoteAiService._();
+          RemoteAiService._();
+          Future<AiCrudProposal> text(String command) async {
+            final fallback = AiCommandInterpreter.instance.interpret(command);
+            if (!SyncService.instance.isOnline) return fallback;
+            try {
+              final request = await _request();
+              request.fields['prompt'] = command.trim();
+              return await _send(request, fallback);
+            } catch (_) { return fallback; }
+          }
+          Future<AiCrudProposal> image(XFile file) async {
+            final fallback = await LocalOcrService.instance.extract(file);
+            if (!SyncService.instance.isOnline) return fallback;
+            try {
+              final bytes = await file.readAsBytes();
+              if (bytes.isEmpty || bytes.length > 10 * 1024 * 1024 || LocalOcrService.instance.mime(bytes) == null) return fallback;
+              final request = await _request();
+              request.files.add(http.MultipartFile.fromBytes('file', bytes, filename: file.name));
+              return await _send(request, fallback);
+            } catch (_) { return fallback; }
+          }
+          Future<http.MultipartRequest> _request() async {
+            final base = await AppConfig.getBaseUrl();
+            final request = http.MultipartRequest('POST', Uri.parse('$base/api/v1/ai/mobile-analyze'));
+            final token = ApiClient.instance.token;
+            if (token != null) request.headers['Authorization'] = 'Bearer $token';
+            return request;
+          }
+          Future<AiCrudProposal> _send(http.MultipartRequest request, AiCrudProposal fallback) async {
+            final response = await request.send().timeout(const Duration(seconds: 15));
+            final body = await response.stream.bytesToString();
+            if (response.statusCode < 200 || response.statusCode >= 300) return fallback;
+            final data = jsonDecode(body) as Map<String, dynamic>;
+            final actionName = data['action']?.toString().toLowerCase();
+            final action = AiCrudAction.values.where((value) => value.name == actionName).firstOrNull ?? AiCrudAction.create;
+            final proposal = AiCrudProposal(action: action,
+              entityType: data['entity']?.toString() ?? data['entityType']?.toString() ?? '',
+              recordId: data['id']?.toString() ?? data['recordId']?.toString(),
+              payload: data['data'] is Map ? Map<String, dynamic>.from(data['data']) : const {},
+              source: AiProposalSource.remoteAi, confidence: (data['confidence'] as num?)?.toDouble() ?? 0);
+            return AiCrudProposal(action: proposal.action, entityType: proposal.entityType, recordId: proposal.recordId,
+              payload: proposal.payload, source: proposal.source, confidence: proposal.confidence,
+              validationErrors: AiEntityRegistry.instance.validate(proposal));
+          }
+        }
+        """.formatted(pubName, pubName, pubName, pubName, pubName, pubName, pubName);
+    }
+
+    // =========================================================================
+    // 8. HOME DASHBOARD & MAIN ENTRYPOINT
     // =========================================================================
 
     private String homeScreen(DiagramDocument diagram, String appTitle, String pubName) {
@@ -4151,6 +4546,7 @@ public class FlutterGenerator {
         import 'package:%s/core/sync/sync_service.dart';
         import 'package:%s/core/widgets/sync_status_badge.dart';
         import 'package:%s/presentation/screens/conflicts/conflict_resolution_screen.dart';
+        import 'package:%s/presentation/screens/ai/ai_assistant_screen.dart';
         %s
 
         class HomeScreen extends StatelessWidget {
@@ -4165,6 +4561,13 @@ public class FlutterGenerator {
                 title: const Text(AppStrings.appName),
                 actions: [
                   const SyncStatusBadge(),
+                  IconButton(
+                    icon: const Icon(Icons.auto_awesome),
+                    tooltip: 'Asistente local',
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const AiAssistantScreen()),
+                    ),
+                  ),
                   IconButton(
                     icon: const Icon(Icons.settings),
                     tooltip: AppStrings.serverSettings,
@@ -4300,7 +4703,7 @@ public class FlutterGenerator {
             );
           }
         }
-        """.formatted(pubName, pubName, pubName, pubName, pubName, pubName, pubName, imports.toString(), cards.toString());
+        """.formatted(pubName, pubName, pubName, pubName, pubName, pubName, pubName, pubName, imports.toString(), cards.toString());
     }
 
     private String mainEntrypoint(DiagramDocument diagram, String title, String pubName) {

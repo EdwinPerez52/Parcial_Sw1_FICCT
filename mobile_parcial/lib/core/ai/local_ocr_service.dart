@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:ventas/core/ai/ai_entity_registry.dart';
 import 'package:ventas/core/ai/ai_models.dart';
@@ -71,7 +72,7 @@ class LocalOcrService extends ChangeNotifier {
     }
 
     // Inspect magic bytes
-    final mime = _detectMimeType(bytes, filename);
+    final mime = _detectMimeType(bytes);
     if (mime == null) {
       return ImageValidationResult(
         isValid: false,
@@ -87,7 +88,7 @@ class LocalOcrService extends ChangeNotifier {
     );
   }
 
-  String? _detectMimeType(Uint8List bytes, String filename) {
+  String? _detectMimeType(Uint8List bytes) {
     if (bytes.length >= 8 &&
         bytes[0] == 0x89 &&
         bytes[1] == 0x50 &&
@@ -110,12 +111,6 @@ class LocalOcrService extends ChangeNotifier {
       return 'image/webp';
     }
 
-    // Extension fallback for testing environments
-    final lower = filename.toLowerCase();
-    if (lower.endsWith('.png')) return 'image/png';
-    if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
-    if (lower.endsWith('.webp')) return 'image/webp';
-
     return null;
   }
 
@@ -133,8 +128,27 @@ class LocalOcrService extends ChangeNotifier {
     }
 
     // Extract text from image or use provided OCR text
-    final text = manualOcrText ?? await _extractRawTextFromImage(imageFile);
-    return parseOcrText(text);
+    try {
+      final text = manualOcrText ?? await _extractRawTextFromImage(imageFile);
+      if (text.trim().isEmpty) {
+        return AiCrudProposal(
+          action: AiCrudAction.search,
+          entityType: 'Producto',
+          validationErrors: const ['No se detectó texto legible en la imagen'],
+          source: AiProposalSource.ocrLocal,
+          rawCommandSummary: 'OCR local sin texto legible',
+        );
+      }
+      return parseOcrText(text);
+    } catch (_) {
+      return AiCrudProposal(
+        action: AiCrudAction.search,
+        entityType: 'Producto',
+        validationErrors: const ['No se pudo procesar la imagen con el OCR local'],
+        source: AiProposalSource.ocrLocal,
+        rawCommandSummary: 'Error de OCR local',
+      );
+    }
   }
 
   /// Parses text extracted from OCR into structured entity fields
@@ -278,13 +292,13 @@ class LocalOcrService extends ChangeNotifier {
   }
 
   Future<String> _extractRawTextFromImage(XFile file) async {
-    // In production mobile this connects to the local on-device ML/OCR channel.
-    // For deterministic behavior and fallback across platforms, we extract readable text or filename metadata.
+    final recognizer = TextRecognizer(script: TextRecognitionScript.latin);
     try {
-      final name = file.name;
-      return 'Texto extraído de imagen: $name';
-    } catch (_) {
-      return '';
+      final input = InputImage.fromFilePath(file.path);
+      final recognized = await recognizer.processImage(input);
+      return recognized.text;
+    } finally {
+      await recognizer.close();
     }
   }
 }

@@ -51,3 +51,9 @@ flutter test
 ```bash
 flutter build apk --release --dart-define=API_BASE_URL=http://localhost:8080
 ```
+
+## IA local y privacidad
+
+El asistente ofrece texto, voz y fotografía. Texto y OCR se procesan localmente; OCR usa ML Kit Text Recognition para alfabeto latino. La voz usa el reconocedor instalado por Android. En el Samsung, instala español en el reconocimiento de voz sin conexión para no depender de red. No necesitas instalar un LLM ni una aplicación de IA adicional.
+
+Todas las mutaciones se muestran como propuesta. Cancelar no escribe SQLite ni la outbox; confirmar reutiliza los repositorios offline-first y queda pendiente de sincronización. Las imágenes y transcripciones no se guardan ni se imprimen en logs. El proveedor remoto es opcional y nunca evita la validación o confirmación local.

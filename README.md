@@ -124,6 +124,16 @@ Endpoints REST disponibles bajo `/api/v1`:
 
 La aplicación Flutter generada (`mobile_parcial`) implementa arquitectura offline-first con SQLite local (`sqflite`), cola transaccional (outbox) con reintentos e idempotencia (`Idempotency-Key`), refresco automático de tokens JWT en 401 y sincronización bidireccional con pantalla de resolución visual de conflictos (conservar local, descartar local o fusionar manualmente).
 
+### Asistente local: texto, voz y fotografía
+
+- **Texto:** interpreta comandos CRUD en el dispositivo usando el registro de entidades generado desde el mismo diagrama. La propuesta se valida con el mismo esquema de campos y tipos que los formularios.
+- **Voz:** usa el servicio de reconocimiento del sistema mediante `speech_to_text`; la transcripción permanece en memoria y pasa por el mismo intérprete local. Para garantizar uso sin red en Android, instala el paquete de español desde **Ajustes → Administración general → Lista de teclados y predeterminado → Entrada de voz → Reconocimiento de voz sin conexión** (la ruta puede variar según la versión de One UI).
+- **Fotografía:** `image_picker` captura o elige la imagen y ML Kit reconoce texto latino en el dispositivo. Se inspeccionan los bytes reales y se rechazan archivos vacíos, mayores a 10 MB o con formato ajeno a PNG/JPEG/WebP.
+- Crear, editar y eliminar siempre abre una vista previa. Cancelar no llama al repositorio; confirmar escribe el cambio optimista y su operación en la misma transacción SQLite para sincronizarla al volver la conexión.
+- El análisis remoto es opcional. Solo se usa al activarlo y con conectividad; cualquier propuesta remota vuelve a validarse localmente y sigue requiriendo confirmación. No se registran imágenes, audio, tokens ni transcripciones.
+
+No es necesario descargar un LLM en el teléfono. El OCR latino se empaqueta con la aplicación. Para voz estrictamente offline sí debe estar instalado el idioma español del reconocedor del dispositivo; si el firmware no ofrece reconocimiento offline, texto y OCR siguen funcionando sin red.
+
 Comandos de verificación y pruebas móviles:
 ```powershell
 cd mobile_parcial
@@ -173,6 +183,16 @@ Esto instala las dependencias de Node.js y compila el agente TypeScript en `scri
 ```powershell
 pnpm agent:test
 ```
+
+## Generación asíncrona de artefactos
+
+La generación de backend y la especificación móvil se crea con `POST /api/v1/diagrams/{diagramId}/generation-jobs`. Incluye el encabezado `Idempotency-Key` (8–120 caracteres) para que un reintento de red devuelva el mismo trabajo. El trabajo siempre apunta a un `versionId` inmutable; si no se indica, el servidor crea o reutiliza el hito de la revisión actual.
+
+Consulta `GET /api/v1/diagrams/{diagramId}/generation-jobs` o `/{jobId}`. Los estados son `QUEUED`, `RUNNING`, `SUCCEEDED` y `FAILED`; un fallo se reintenta con `POST /{jobId}/retry`. Al terminar, la respuesta entrega enlaces de descarga firmados de cinco minutos para el backend ZIP y `modeler-mobile-spec.json`. El ZIP contiene solo el backend, OpenAPI, README, Docker Compose y trazabilidad. Flutter nunca se incluye en ese ZIP.
+
+En desarrollo, los objetos se cifran con AES-GCM en `GENERATION_LOCAL_STORAGE_PATH`. En AWS, `S3ArtifactStorage` usa SSE-S3 y los trabajos se publican en SQS; Terraform despliega un servicio ECS de workers separado. Configura secretos distintos para `GENERATION_ENCRYPTION_KEY` y `GENERATION_DOWNLOAD_SECRET`.
+
+El agente local solicita `POST /api/v1/diagrams/{diagramId}/generation-jobs/{jobId}/agent-spec` y genera un proyecto Flutter nuevo en `generated-mobile/` desde la especificación firmada. No descarga ni recibe código Flutter del servidor.
 
 ## Solución de problemas
 

@@ -106,6 +106,17 @@ void main() {
       expect(pedidoProposal.isValid, isFalse);
     });
 
+    test('Rejects fields outside the generated form schema', () {
+      final meta = AiEntityRegistry.instance.findEntity('Cliente')!;
+      final errors = meta.validatePayload({
+        'nombre': 'Ana',
+        'email': 'ana@test.com',
+        'sql': 'DROP TABLE cliente',
+      });
+
+      expect(errors, contains('El campo "sql" no pertenece a Cliente'));
+    });
+
     test('Parses UPDATE command with recordId and partial payload', () {
       final proposal = interpreter.interpret(
         'actualizar producto id PROD-01 precio 59.99',
@@ -184,6 +195,15 @@ void main() {
 
       expect(result.isValid, isTrue);
       expect(result.mimeType, equals('image/jpeg'));
+    });
+
+    test('Image validation does not trust a forged extension', () {
+      final result = ocrService.validateImageBytes(
+        Uint8List.fromList('not-an-image'.codeUnits),
+        'forged.jpg',
+      );
+
+      expect(result.isValid, isFalse);
     });
 
     test('OCR extracts Factura fields from invoice receipt text', () {
@@ -286,6 +306,40 @@ void main() {
       expect(pendingOps.first.action.toLowerCase(), equals('create'));
       expect(pendingOps.first.payload!['nombre'], equals('Roberto Sanchez'));
       expect(pendingOps.first.payload!['email'], equals('roberto@test.com'));
+    });
+
+    test('Execution revalidates a tampered proposal before writing', () async {
+      final meta = AiEntityRegistry.instance.findEntity('Cliente')!;
+      final proposal = AiCrudProposal(
+        action: AiCrudAction.create,
+        entityType: 'Cliente',
+        payload: const {'nombre': 'Sin correo'},
+        source: AiProposalSource.remoteAi,
+        rawCommandSummary: 'Propuesta remota',
+      );
+
+      await expectLater(meta.execute(proposal), throwsStateError);
+      expect(await OutboxService.instance.getPendingOperations(), isEmpty);
+    });
+
+    test('Concurrent confirmations keep both idempotent outbox operations', () async {
+      final meta = AiEntityRegistry.instance.findEntity('Cliente')!;
+      final first = AiCommandInterpreter.instance.interpret(
+        'crear cliente Ada Lovelace email ada@test.com',
+      );
+      final second = AiCommandInterpreter.instance.interpret(
+        'crear cliente Grace Hopper email grace@test.com',
+      );
+
+      await Future.wait([meta.execute(first), meta.execute(second)]);
+
+      final operations = await OutboxService.instance.getPendingOperations();
+      expect(operations, hasLength(2));
+      expect(operations.map((operation) => operation.id).toSet(), hasLength(2));
+      expect(
+        operations.map((operation) => operation.payload!['email']).toSet(),
+        {'ada@test.com', 'grace@test.com'},
+      );
     });
   });
 }

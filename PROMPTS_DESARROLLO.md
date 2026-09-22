@@ -216,7 +216,7 @@ La interfaz será un CRUD adaptable: no intentes inventar pantallas de negocio c
 Criterio de aceptación: para modelos de ventas, colegio y salud se genera en caliente una aplicación Flutter que se autentica y permite operar cada entidad y relación contra el backend generado desde la misma revisión en localhost:8080.
 ```
 
-## 17. Agente local, generación Flutter en vivo y ejecución en dispositivo móvil
+--## 17. Agente local, generación Flutter en vivo y ejecución en dispositivo móvil
 
 ```text
 Objetivo: crear Collab Modeler Local Agent para generar el proyecto Flutter en caliente durante la presentación, compilar o ejecutar la aplicación y conectarla de inmediato al backend generado en localhost.

@@ -39,6 +39,8 @@ management:
       exposure:
         include: health,info
 app:
+  mobile-spec:
+    secret: ${MOBILE_SPEC_SECRET:modeler-mobile-spec-secret-signing-key-32b}
   public-url: ${APP_PUBLIC_URL:http://localhost:5173}
   bootstrap-admin-email: ${APP_BOOTSTRAP_ADMIN_EMAIL:}
   auth:
@@ -58,3 +60,9 @@ app:
     audio-model: ${AI_AUDIO_MODEL:gpt-4o-mini-transcribe}
     proposal-minutes: ${AI_PROPOSAL_MINUTES:15}
     max-instruction-length: ${AI_MAX_INSTRUCTION_LENGTH:2000}
+  generation:
+    local-storage-path: ${GENERATION_LOCAL_STORAGE_PATH:./var/artifacts}
+    encryption-key: ${GENERATION_ENCRYPTION_KEY:local-generation-key-change-me}
+    download-secret: ${GENERATION_DOWNLOAD_SECRET:local-download-secret-change-me}
+    download-url-minutes: ${GENERATION_DOWNLOAD_URL_MINUTES:5}
+    retention-hours: ${GENERATION_RETENTION_HOURS:168}

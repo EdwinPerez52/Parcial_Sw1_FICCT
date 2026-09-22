@@ -158,6 +158,16 @@ class FlutterGeneratorTest {
         assertTrue(files.containsKey("lib/presentation/screens/home/home_screen.dart"));
         String homeScreenCode = files.get("lib/presentation/screens/home/home_screen.dart");
         assertTrue(homeScreenCode.contains("SyncStatusBadge"));
+        assertTrue(homeScreenCode.contains("AiAssistantScreen"));
+
+        assertTrue(files.containsKey("lib/core/ai/ai_command_interpreter.dart"));
+        assertTrue(files.containsKey("lib/core/ai/local_ocr_service.dart"));
+        assertTrue(files.containsKey("lib/core/ai/remote_ai_service.dart"));
+        assertTrue(files.containsKey("lib/core/ai/speech_recognition_service.dart"));
+        assertTrue(files.containsKey("lib/presentation/screens/ai/ai_assistant_screen.dart"));
+        assertTrue(files.get("lib/core/ai/local_ocr_service.dart").contains("TextRecognizer"));
+        assertFalse(files.get("lib/core/ai/local_ocr_service.dart").contains("Texto extraído de imagen"));
+        assertTrue(files.get("pubspec.yaml").contains("google_mlkit_text_recognition"));
 
         assertTrue(files.containsKey("lib/main.dart"));
         String mainCode = files.get("lib/main.dart");
@@ -312,11 +322,19 @@ class FlutterGeneratorTest {
     void generatesCanonicalFlutterAppInMobileParcial() throws Exception {
         var ventasModel = buildVentasModel();
         String openapi = openApiGenerator.generateYaml(ventasModel, "ventas-api");
-        Path mobileParcialDir = Path.of("..", "mobile_parcial").toAbsolutePath().normalize();
-        flutterGenerator.writeToDirectory(ventasModel, openapi, "Ventas Móvil", mobileParcialDir);
-        assertTrue(Files.exists(mobileParcialDir.resolve("pubspec.yaml")), "pubspec.yaml debe existir en mobile_parcial");
-        assertTrue(Files.exists(mobileParcialDir.resolve("lib/main.dart")), "main.dart debe existir en mobile_parcial");
-        assertTrue(Files.exists(mobileParcialDir.resolve("lib/data/models/pedido.dart")), "pedido.dart debe existir en mobile_parcial");
+        boolean materialize = Boolean.getBoolean("materializeMobile");
+        Path mobileParcialDir = materialize
+            ? Path.of("..", "mobile_parcial").toAbsolutePath().normalize()
+            : Files.createTempDirectory("mobile_parcial_materialized_");
+        try {
+            flutterGenerator.writeToDirectory(ventasModel, openapi, "Ventas Móvil", mobileParcialDir);
+            assertTrue(Files.exists(mobileParcialDir.resolve("pubspec.yaml")), "pubspec.yaml debe existir");
+            assertTrue(Files.exists(mobileParcialDir.resolve("lib/main.dart")), "main.dart debe existir");
+            assertTrue(Files.exists(mobileParcialDir.resolve("lib/data/models/pedido.dart")), "pedido.dart debe existir");
+            assertTrue(Files.exists(mobileParcialDir.resolve("lib/core/ai/local_ocr_service.dart")), "OCR local debe generarse");
+        } finally {
+            if (!materialize) deleteDirectory(mobileParcialDir.toFile());
+        }
     }
 
     // =========================================================================

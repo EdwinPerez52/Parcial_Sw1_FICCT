@@ -95,6 +95,12 @@ class AiEntityMeta {
 
   List<String> validatePayload(Map<String, dynamic> payload, {bool isCreate = true}) {
     final errors = <String>[];
+    final allowed = attributes.map((attribute) => attribute.name).toSet();
+    for (final key in payload.keys) {
+      if (!allowed.contains(key)) {
+        errors.add('El campo "$key" no pertenece a $name');
+      }
+    }
     for (final attr in attributes) {
       if (attr.isPrimaryKey) continue;
       final val = payload[attr.name];
@@ -109,6 +115,20 @@ class AiEntityMeta {
   }
 
   Future<dynamic> execute(AiCrudProposal proposal) async {
+    final errors = <String>[...proposal.validationErrors];
+    if (proposal.action == AiCrudAction.create || proposal.action == AiCrudAction.update) {
+      errors.addAll(validatePayload(
+        proposal.payload,
+        isCreate: proposal.action == AiCrudAction.create,
+      ));
+    }
+    if ((proposal.action == AiCrudAction.update || proposal.action == AiCrudAction.delete) &&
+        (proposal.recordId == null || proposal.recordId!.trim().isEmpty)) {
+      errors.add('Se requiere el identificador del registro');
+    }
+    if (errors.isNotEmpty) {
+      throw StateError(errors.toSet().join('. '));
+    }
     switch (proposal.action) {
       case AiCrudAction.create:
         if (onCreate != null) {
@@ -186,7 +206,10 @@ class AiEntityRegistry {
           AiAttributeMeta(name: 'email', type: 'String', required: true, aliases: ['correo', 'mail']),
         ],
         onCreate: (data) async => await clienteRepo.create(Cliente.fromJson(data)),
-        onUpdate: (id, data) async => await clienteRepo.update(id, Cliente.fromJson(data)),
+        onUpdate: (id, data) async {
+          final current = await clienteRepo.getById(id);
+          return clienteRepo.update(id, Cliente.fromJson({...current.toJson(), ...data, 'id': id}));
+        },
         onDelete: (id) async => await clienteRepo.delete(id),
         onSearch: (q) async => await clienteRepo.getAll(search: q),
       ),
@@ -216,7 +239,10 @@ class AiEntityRegistry {
           ),
         ],
         onCreate: (data) async => await facturaRepo.create(Factura.fromJson(data)),
-        onUpdate: (id, data) async => await facturaRepo.update(id, Factura.fromJson(data)),
+        onUpdate: (id, data) async {
+          final current = await facturaRepo.getById(id);
+          return facturaRepo.update(id, Factura.fromJson({...current.toJson(), ...data, 'id': id}));
+        },
         onDelete: (id) async => await facturaRepo.delete(id),
         onSearch: (q) async => await facturaRepo.getAll(search: q),
       ),
@@ -237,7 +263,10 @@ class AiEntityRegistry {
           AiAttributeMeta(name: 'stock', type: 'Integer', required: true, aliases: ['cantidad', 'existencia']),
         ],
         onCreate: (data) async => await productoRepo.create(Producto.fromJson(data)),
-        onUpdate: (id, data) async => await productoRepo.update(id, Producto.fromJson(data)),
+        onUpdate: (id, data) async {
+          final current = await productoRepo.getById(id);
+          return productoRepo.update(id, Producto.fromJson({...current.toJson(), ...data, 'id': id}));
+        },
         onDelete: (id) async => await productoRepo.delete(id),
         onSearch: (q) async => await productoRepo.getAll(search: q),
       ),
@@ -267,7 +296,10 @@ class AiEntityRegistry {
           const AiAttributeMeta(name: 'productoIds', type: 'List<String>', required: false, aliases: ['productos']),
         ],
         onCreate: (data) async => await pedidoRepo.create(Pedido.fromJson(data)),
-        onUpdate: (id, data) async => await pedidoRepo.update(id, Pedido.fromJson(data)),
+        onUpdate: (id, data) async {
+          final current = await pedidoRepo.getById(id);
+          return pedidoRepo.update(id, Pedido.fromJson({...current.toJson(), ...data, 'id': id}));
+        },
         onDelete: (id) async => await pedidoRepo.delete(id),
         onSearch: (q) async => await pedidoRepo.getAll(search: q),
       ),

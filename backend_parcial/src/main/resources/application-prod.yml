@@ -13,5 +13,13 @@ server:
       cookie:
         secure: true
 app:
+  mobile-spec:
+    secret: ${MOBILE_SPEC_SECRET}
   collaboration:
     allowed-origins: ${WEBSOCKET_ALLOWED_ORIGINS}
+  generation:
+    s3-bucket: ${GENERATION_S3_BUCKET}
+    sqs-queue-url: ${GENERATION_SQS_QUEUE_URL}
+    encryption-key: ${GENERATION_ENCRYPTION_KEY}
+    download-secret: ${GENERATION_DOWNLOAD_SECRET}
+    worker-enabled: ${GENERATION_WORKER_ENABLED:false}

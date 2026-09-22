@@ -41,8 +41,8 @@ El agente escucha en `http://127.0.0.1:9876` (solo loopback, nunca expuesto a la
 1. En la web de Collab Modeler, abre un diagrama y haz clic en **Generar App Móvil**.
 2. La web verifica que el agente local esté activo.
 3. Obtiene la especificación firmada (HMAC-SHA256) con nonce de un solo uso del backend.
-4. Envía la especificación + ZIP Flutter al agente local.
-5. El agente valida la firma, consume el nonce, extrae el proyecto y ejecuta `flutter pub get`.
+4. Envía la especificación firmada al agente local; el código Flutter se materializa localmente, nunca se descarga como ZIP desde el servidor.
+5. El agente valida la firma con su clave local, consume el nonce y ejecuta `flutter pub get`.
 6. Puedes seleccionar un dispositivo conectado y ejecutar `flutter run` o `flutter build apk --release`.
 
 ## Seguridad
@@ -76,7 +76,7 @@ La app Flutter usará `http://localhost:8080` como API base.
 | Variable | Descripción | Predeterminado |
 |---|---|---|
 | `AGENT_PORT` | Puerto del agente | `9876` |
-| `AGENT_SIGNING_KEY` | Clave HMAC-SHA256 | Clave compartida con el backend |
+| `AGENT_SIGNING_KEY` | Clave HMAC-SHA256 obligatoria, igual a `app.mobile-spec.secret` del backend | — |
 
 ## Pruebas
 

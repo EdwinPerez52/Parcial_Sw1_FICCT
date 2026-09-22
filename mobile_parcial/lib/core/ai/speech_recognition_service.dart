@@ -107,14 +107,17 @@ class SpeechRecognitionService extends ChangeNotifier {
             onResult(proposal);
           }
         },
-        listenFor: const Duration(seconds: 20),
-        pauseFor: const Duration(seconds: 3),
-        localeId: localeId,
         onSoundLevelChange: (level) {
           _soundLevel = level;
           notifyListeners();
         },
-        cancelOnError: true,
+        listenOptions: stt.SpeechListenOptions(
+          listenFor: const Duration(seconds: 20),
+          pauseFor: const Duration(seconds: 3),
+          localeId: localeId,
+          cancelOnError: true,
+          onDevice: true,
+        ),
       );
     } catch (e) {
       _status = SpeechRecognitionStatus.error;

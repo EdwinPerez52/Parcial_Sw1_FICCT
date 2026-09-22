@@ -8,8 +8,7 @@
 import express, { Request, Response, NextFunction } from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as crypto from 'crypto';
-import { validateOrigin, verifySignature, consumeNonce, sanitizeOutputPath } from './security';
+import { validateOrigin, verifySignature, consumeNonce, sanitizeOutputPath, validateApiBaseUrl } from './security';
 import { getSdkStatus, listDevices } from './sdk-checker';
 import { runCommand, setupAdbReverse, RunnerEvent } from './runner';
 
@@ -17,8 +16,9 @@ const app = express();
 const PORT = parseInt(process.env.AGENT_PORT || '9876', 10);
 const HOST = '127.0.0.1'; // NEVER bind to 0.0.0.0
 
-// Parse JSON bodies up to 200MB (Flutter ZIP can be large)
-app.use(express.json({ limit: '200mb' }));
+// Source is materialized locally from the signed contract, so large ZIP payloads
+// never traverse the browser or the local agent API.
+app.use(express.json({ limit: '2mb' }));
 
 // CORS middleware — strictly loopback origins only
 app.use((req: Request, res: Response, next: NextFunction) => {
@@ -78,14 +78,19 @@ app.get('/api/devices', (_req: Request, res: Response) => {
 });
 
 // =============================================================================
-// POST /api/generate — Receive spec + Flutter ZIP, extract to output dir
+// POST /api/generate — Generate Flutter source locally from a signed spec
 // =============================================================================
 app.post('/api/generate', requireOrigin, async (req: Request, res: Response) => {
   try {
-    const { spec, flutterZipBase64, signingKey, outputDir } = req.body;
+    const { spec, outputDir } = req.body;
+    const signingKey = process.env.AGENT_SIGNING_KEY;
 
-    if (!spec || !flutterZipBase64 || !signingKey) {
-      res.status(400).json({ error: 'Faltan campos obligatorios: spec, flutterZipBase64, signingKey' });
+    if (!spec) {
+      res.status(400).json({ error: 'Falta la especificación firmada' });
+      return;
+    }
+    if (!signingKey) {
+      res.status(503).json({ error: 'El agente no tiene una clave de firma configurada', code: 'AGENT_NOT_CONFIGURED' });
       return;
     }
 
@@ -105,7 +110,9 @@ app.post('/api/generate', requireOrigin, async (req: Request, res: Response) => 
     const workspaceRoot = path.resolve(__dirname, '..', '..', '..');
 
     // Determine output directory
-    const requestedDir = outputDir || path.join(workspaceRoot, 'mobile_parcial');
+    const projectName = String(spec.diagramName || 'collab_modeler_app').toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'collab_modeler_app';
+    const requestedDir = outputDir || path.join(workspaceRoot, 'generated-mobile', `${projectName}_r${spec.revision}`);
     const safeDir = sanitizeOutputPath(requestedDir, workspaceRoot);
     if (!safeDir) {
       res.status(400).json({ error: 'Ruta de salida no permitida', code: 'INVALID_PATH' });
@@ -125,13 +132,9 @@ app.post('/api/generate', requireOrigin, async (req: Request, res: Response) => 
 
     sendEvent('progress', { step: 'validating', message: 'Especificación verificada ✓' });
 
-    // Decode and extract ZIP
-    sendEvent('progress', { step: 'extracting', message: `Extrayendo proyecto Flutter en ${safeDir}…` });
-
-    const zipBuffer = Buffer.from(flutterZipBase64, 'base64');
-    await extractZip(zipBuffer, safeDir);
-
-    sendEvent('progress', { step: 'extracted', message: `Proyecto Flutter extraído en ${safeDir}` });
+    sendEvent('progress', { step: 'materializing', message: `Generando proyecto Flutter en ${safeDir}…` });
+    materializeFlutterFromSpec(spec, safeDir);
+    sendEvent('progress', { step: 'materialized', message: `Proyecto Flutter generado en ${safeDir}` });
 
     // Create flutter project scaffolding if needed (android/, web/ dirs)
     if (!fs.existsSync(path.join(safeDir, 'android'))) {
@@ -214,6 +217,15 @@ app.post('/api/run', requireOrigin, async (req: Request, res: Response) => {
       res.status(400).json({ error: `Acción no permitida: ${action}`, code: 'INVALID_ACTION' });
       return;
     }
+    if (deviceId !== undefined && (typeof deviceId !== 'string' || !/^[A-Za-z0-9._:-]{1,128}$/.test(deviceId))) {
+      res.status(400).json({ error: 'Identificador de dispositivo inválido', code: 'INVALID_DEVICE' });
+      return;
+    }
+    const safeApiBaseUrl = validateApiBaseUrl(apiBaseUrl || 'http://localhost:8080');
+    if (!safeApiBaseUrl) {
+      res.status(400).json({ error: 'La URL de API debe usar HTTP y una dirección local o privada', code: 'INVALID_API_URL' });
+      return;
+    }
 
     // SSE headers
     res.writeHead(200, {
@@ -238,7 +250,7 @@ app.post('/api/run', requireOrigin, async (req: Request, res: Response) => {
       command: commandName,
       projectDir: safeDir,
       deviceId,
-      apiBaseUrl: apiBaseUrl || 'http://localhost:8080',
+      apiBaseUrl: safeApiBaseUrl,
       onEvent: (ev) => sendEvent('output', ev),
     });
 
@@ -261,41 +273,27 @@ app.post('/api/run', requireOrigin, async (req: Request, res: Response) => {
 });
 
 // =============================================================================
-// ZIP extraction — pure Node.js, no external dependency
-// =============================================================================
-async function extractZip(zipBuffer: Buffer, outputDir: string): Promise<void> {
-  // Use Node.js built-in zlib + manual ZIP parsing
-  const { createWriteStream } = await import('fs');
-  const { mkdir } = await import('fs/promises');
-  const { Readable } = await import('stream');
-
-  // We use a simple approach: write the zip to a temp file, then use
-  // the built-in `unzip` via child_process on the platform
-  const tmpZip = path.join(outputDir + '.tmp.zip');
-  await mkdir(path.dirname(tmpZip), { recursive: true });
-  await mkdir(outputDir, { recursive: true });
-  fs.writeFileSync(tmpZip, zipBuffer);
-
-  try {
-    // Cross-platform extraction
-    const { execSync } = await import('child_process');
-    const isWindows = process.platform === 'win32';
-
-    if (isWindows) {
-      execSync(`powershell -NoProfile -Command "Expand-Archive -Force -Path '${tmpZip}' -DestinationPath '${outputDir}'"`, {
-        timeout: 60000,
-        stdio: 'pipe',
-      });
-    } else {
-      execSync(`unzip -o "${tmpZip}" -d "${outputDir}"`, {
-        timeout: 60000,
-        stdio: 'pipe',
-      });
-    }
-  } finally {
-    try { fs.unlinkSync(tmpZip); } catch { /* ignore */ }
-  }
+// Local, deterministic materialization. The existing mobile application remains
+// untouched; each revision receives its own editable project directory.
+function materializeFlutterFromSpec(spec: any, outputDir: string): void {
+  if (!Array.isArray(spec.entities)) throw new Error('La especificación no contiene entidades válidas');
+  fs.mkdirSync(path.join(outputDir, 'lib'), { recursive: true });
+  const title = dartString(String(spec.diagramName || 'Collab Modeler'));
+  const tabs = spec.entities.map((entity: any, index: number) => `Tab(text: '${dartString(String(entity.name || `Entidad ${index + 1}`))}')`).join(', ');
+  const views = spec.entities.map((entity: any) => `${dartIdentifier(String(entity.name || 'Entidad'))}View()`).join(', ');
+  const classes = spec.entities.map((entity: any) => generatedEntityClass(entity)).join('\n');
+  fs.writeFileSync(path.join(outputDir, 'pubspec.yaml'), `name: collab_modeler_generated\ndescription: Aplicación generada localmente desde una especificación firmada.\npublish_to: none\nenvironment:\n  sdk: '>=3.3.0 <4.0.0'\ndependencies:\n  flutter:\n    sdk: flutter\ndev_dependencies:\n  flutter_test:\n    sdk: flutter\n  flutter_lints: ^5.0.0\nflutter:\n  uses-material-design: true\n`);
+  fs.writeFileSync(path.join(outputDir, 'lib', 'main.dart'), `import 'package:flutter/material.dart';\n\nvoid main() => runApp(const GeneratedApp());\nclass GeneratedApp extends StatelessWidget { const GeneratedApp({super.key}); @override Widget build(BuildContext context) => MaterialApp(title: '${title}', theme: ThemeData(colorSchemeSeed: const Color(0xff4f46e5), useMaterial3: true), home: const GeneratedHome()); }\nclass GeneratedHome extends StatelessWidget { const GeneratedHome({super.key}); @override Widget build(BuildContext context) => DefaultTabController(length: ${Math.max(1, spec.entities.length)}, child: Scaffold(appBar: AppBar(title: const Text('${title}'), bottom: const TabBar(isScrollable: true, tabs: [${tabs || "const Tab(text: 'Inicio')"}])), body: TabBarView(children: [${views || "const Center(child: Text('No hay entidades en esta revisión.'))"}]))); }\n${classes}\n`);
+  fs.writeFileSync(path.join(outputDir, 'modeler-mobile-spec.json'), JSON.stringify(spec, null, 2));
 }
+function generatedEntityClass(entity: any): string {
+  const className = dartIdentifier(String(entity.name || 'Entidad'));
+  const attributes = Array.isArray(entity.attributes) ? entity.attributes : [];
+  const fields = attributes.map((attribute: any) => `TextField(decoration: const InputDecoration(labelText: '${dartString(String(attribute.name || 'campo'))}')),`).join('');
+  return `class ${className}View extends StatelessWidget { const ${className}View({super.key}); @override Widget build(BuildContext context) => ListView(padding: const EdgeInsets.all(16), children: [Text('${dartString(String(entity.name || 'Entidad'))}', style: Theme.of(context).textTheme.headlineSmall), const SizedBox(height: 12), const Text('CRUD generado desde la revisión firmada.'), const SizedBox(height: 16), ${fields || "const Text('Esta entidad no tiene atributos.')"}]); }`;
+}
+function dartIdentifier(value: string): string { const clean = value.replace(/[^A-Za-z0-9_]/g, '_').replace(/^\d/, '_'); return clean ? clean[0].toUpperCase() + clean.slice(1) : 'Entidad'; }
+function dartString(value: string): string { return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/[\r\n]/g, ' '); }
 
 // =============================================================================
 // Start server

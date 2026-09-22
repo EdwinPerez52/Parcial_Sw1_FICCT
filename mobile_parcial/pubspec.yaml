@@ -21,6 +21,7 @@ dependencies:
   uuid: any
   image_picker: any
   speech_to_text: any
+  google_mlkit_text_recognition: ^0.17.1
 
 dev_dependencies:
   flutter_test:

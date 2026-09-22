@@ -4,6 +4,7 @@ import {
   consumeNonce,
   resetNonces,
   sanitizeOutputPath,
+  validateApiBaseUrl,
 } from '../security';
 import * as crypto from 'crypto';
 import * as os from 'os';
@@ -175,6 +176,18 @@ describe('security', () => {
         expect(sanitizeOutputPath('/usr/local/bin', workspace)).toBeNull();
         expect(sanitizeOutputPath('/etc/config', workspace)).toBeNull();
       }
+    });
+  });
+
+  describe('validateApiBaseUrl', () => {
+    it('accepts loopback and RFC1918 HTTP URLs only', () => {
+      expect(validateApiBaseUrl('http://localhost:8080')).toBe('http://localhost:8080');
+      expect(validateApiBaseUrl('http://192.168.1.20:8080')).toBe('http://192.168.1.20:8080');
+    });
+    it('rejects public, credentialed, and non-HTTP URLs', () => {
+      expect(validateApiBaseUrl('https://example.com')).toBeNull();
+      expect(validateApiBaseUrl('http://user:pass@192.168.1.20')).toBeNull();
+      expect(validateApiBaseUrl('http://8.8.8.8:8080')).toBeNull();
     });
   });
 });
