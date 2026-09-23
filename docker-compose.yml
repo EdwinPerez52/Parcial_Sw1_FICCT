@@ -34,7 +34,7 @@ services:
   api:
     build:
       context: .
-      dockerfile: backend_parcial/Dockerfile
+      dockerfile: Backend-web/Dockerfile
     environment:
       SPRING_PROFILES_ACTIVE: dev
       DATABASE_URL: jdbc:postgresql://postgres:5432/modeler
@@ -71,7 +71,7 @@ services:
   web:
     build:
       context: .
-      dockerfile: frontend_parcial/Dockerfile
+      dockerfile: Frontend-web/Dockerfile
     ports:
       - "5173:80"
     depends_on:

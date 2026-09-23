@@ -2,11 +2,17 @@
 
 ## Componentes
 
-- `frontend_parcial`: React, TypeScript, React Flow y Zustand. Mantiene una vista optimista inmutable y una outbox persistente.
-- `backend_parcial`: Spring Boot. Autoriza, valida operaciones, persiste el modelo y genera artefactos.
+- `Frontend-web`: React, TypeScript, React Flow y Zustand. Mantiene una vista optimista inmutable y una outbox persistente.
+- `Backend-web`: Spring Boot. Autoriza, valida operaciones, persiste el modelo y genera artefactos.
 - PostgreSQL: instantánea actual, miembros, comentarios, conversaciones, actividad, versiones e historial de operaciones.
 - Redis: presencia efímera con expiración y fan-out de eventos entre réplicas.
 - S3: reservado para imágenes y artefactos generados en AWS.
+
+## Entrega y operación AWS
+
+La topología Terraform contiene dos estados aislados (`test` y `prod`) sobre un bootstrap separado que conserva estado versionado, bloqueo y ECR. CloudFront sirve el SPA desde un bucket S3 privado con OAC y envía `/api/*`, `/ws*` y la comprobación de salud al ALB. API y worker son servicios ECS Fargate privados, con circuit breaker y rollback del despliegue; el ALB es su único ingreso. RDS, Redis y tareas permanecen en subredes privadas. Las credenciales de RDS las administra RDS en Secrets Manager y el resto de secretos de aplicación se inyectan desde un secreto distinto; nunca forman parte del `task definition`.
+
+Las políticas IAM separan el rol de ejecución ECS (imágenes, logs y lectura de secretos) del rol de aplicación (S3/KMS de artefactos y SQS). SQS usa DLQ, los artefactos expiran, RDS cifra almacenamiento y conserva backups, CloudWatch conserva logs y SES recibe identidad de dominio, DKIM y `MAIL FROM` por Route 53. HTTPS termina en CloudFront y, cuando se configura dominio, también en ALB con ACM y el origen CloudFront usa HTTPS.
 
 ## Flujo de colaboración
 
@@ -93,11 +99,11 @@ Flyway es la única fuente del esquema y Hibernate usa `ddl-auto=validate`. Las 
 - XMI conserva el modelo semántico, no el diseño propietario de Enterprise Architect.
 - La vista previa XMI es de solo lectura. La confirmación se traduce en un único `BATCH` del mismo flujo colaborativo; no existe una escritura lateral que evite revisiones, autorización, conflictos o deshacer.
 - La regeneración produce un ZIP nuevo y no mezcla código editado manualmente.
-- La aplicación Flutter (`mobile_parcial`) y su generador (`FlutterGenerator`) implementan soporte completo para generación desde diagramas, autenticación con persistencia de tokens, almacenamiento offline SQLite, cola transaccional (outbox) y sincronización bidireccional con resolución visual de conflictos.
+- La aplicación Flutter (`mobile-flutter`) y su generador (`FlutterGenerator`) implementan soporte completo para generación desde diagramas, autenticación con persistencia de tokens, almacenamiento offline SQLite, cola transaccional (outbox) y sincronización bidireccional con resolución visual de conflictos.
 
 ## Agente Local (Collab Modeler Local Agent)
 
-El agente local es un servidor Node.js/TypeScript liviano que permite generar y ejecutar la aplicación Flutter directamente desde la web, sin descargas manuales. Reside en `scripts/local-agent/`.
+El agente local es un servidor Node.js/TypeScript liviano que permite generar y ejecutar la aplicación Flutter directamente desde la web, sin descargas manuales. Reside en `mobile-flutter/tools/local-agent/`.
 
 ### Arquitectura
 
@@ -137,7 +143,7 @@ El código Flutter se materializa en la computadora desde esa especificación. L
 
 ## Flutter Móvil Offline-First y Sincronización Bidireccional (Incremento 18)
 
-La aplicación Flutter móvil y multiplataforma generada por Collab Modeler y materializada en `mobile_parcial` implementa una arquitectura **offline-first** con almacenamiento local seguro, cola transaccional (outbox) y sincronización bidireccional continua con detección y resolución visual de conflictos de concurrencia.
+La aplicación Flutter móvil y multiplataforma generada por Collab Modeler y materializada en `mobile-flutter` implementa una arquitectura **offline-first** con almacenamiento local seguro, cola transaccional (outbox) y sincronización bidireccional continua con detección y resolución visual de conflictos de concurrencia.
 
 ### 1. Almacenamiento Local SQLite (`AppDatabase`)
 Gestiona una base de datos SQLite relacional (`collab_modeler_offline.db`) con soporte tanto en dispositivos móviles (Android/iOS) como en entornos headless o escritorio (Windows/Linux/macOS) mediante FFI (`sqflite_common_ffi`):

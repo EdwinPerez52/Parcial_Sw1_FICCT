@@ -2,10 +2,16 @@
 
 Editor UML colaborativo con React/TypeScript, Spring Boot/Java 21, PostgreSQL y Redis.
 
+## Estructura
+
+`Backend-web/`, `Frontend-web/` y `mobile-flutter/` contienen respectivamente el backend, frontend y aplicación Flutter con sus archivos internos. La infraestructura declarativa vive en `infra/`, las automatizaciones compartidas en `scripts/` y la documentación en `docs/`. Consulta los [límites de módulos](./docs/module-boundaries.md) antes de crear dependencias entre componentes.
+
+Para aprender a utilizar el producto, abre el [manual de usuario web y móvil](./documentacion%20proyecto/manual-usuario.html).
+
 ## Requisitos
 
 - Node.js 22 o superior y Corepack.
-- Java JDK 21. No hace falta instalar Maven: `backend_parcial/mvnw.cmd` (Windows) y `backend_parcial/mvnw` fijan Maven 3.9.11.
+- Java JDK 21. No hace falta instalar Maven: `Backend-web/mvnw.cmd` (Windows) y `Backend-web/mvnw` fijan Maven 3.9.11.
 - Docker Desktop con Docker Compose para PostgreSQL, Redis y el entorno completo.
 - Para Android: Flutter SDK estable, Android SDK Platform Tools y `adb` en `PATH`.
 
@@ -49,16 +55,26 @@ Detén los contenedores sin borrar el volumen de PostgreSQL con `pnpm stop`.
 pnpm test:all
 ```
 
-Ejecuta pruebas y build de React, `mvn verify`, `flutter doctor` y, cuando existe una app en `mobile_parcial`, `flutter analyze` y `flutter test`. La integración PostgreSQL usa Testcontainers y se omite explícitamente si Docker no está disponible.
+Ejecuta pruebas y build de React, `mvn verify`, `flutter doctor` y, cuando existe una app en `mobile-flutter`, `flutter analyze` y `flutter test`. La integración PostgreSQL usa Testcontainers y se omite explícitamente si Docker no está disponible.
 
 Comandos individuales:
 
 ```powershell
 pnpm test
 pnpm build
-cd backend_parcial
+cd Backend-web
 .\mvnw.cmd verify
 ```
+
+## Evidencia, operación y contratos
+
+La [matriz de trazabilidad](./docs/traceability.md) separa lo automatizado de los pasos que requieren un proveedor, Docker o un dispositivo físico. Sigue la [validación final y guía de operación](./docs/release-validation.md) para la demostración, despliegue, backups, recuperación y seguridad. El contrato REST está en [docs/openapi.yaml](./docs/openapi.yaml); el modelo de datos y la retención están en [docs/data-model.md](./docs/data-model.md), y el modelo UML en [docs/uml-json-contract.md](./docs/uml-json-contract.md).
+
+## CI/CD y AWS
+
+GitHub Actions instala las dependencias con `pnpm-lock.yaml`, `package-lock.json` y `pubspec.lock`; prueba y compila web, agente local, backend y APK Android, valida las migraciones Flyway contra PostgreSQL, analiza dependencias, construye contenedores y ejecuta `terraform fmt`/`validate`.
+
+Al fusionar un commit aprobado a `main`, el flujo publica `collab-modeler-api:sha-<SHA-completo>`, prepara y conserva el plan de Terraform del ambiente de prueba, aplica ese plan, publica el frontend y ejecuta un smoke test de salud. Producción se promueve con ejecución manual, el SHA completo que pasó prueba y una aprobación del environment `production`; no hay destrucción ni aplicación automática de producción. Consulta la guía inicial, recursos y secretos requeridos en [infra/terraform/README.md](./infra/terraform/README.md).
 
 ## Variables de entorno
 
@@ -122,7 +138,7 @@ Endpoints REST disponibles bajo `/api/v1`:
 4. Activa «Depuración USB», conecta un cable de datos, desbloquea el teléfono y acepta la huella RSA.
 5. Ejecuta `pnpm mobile:check`. `adb devices -l` debe mostrar el estado `device`, no `unauthorized`.
 
-La aplicación Flutter generada (`mobile_parcial`) implementa arquitectura offline-first con SQLite local (`sqflite`), cola transaccional (outbox) con reintentos e idempotencia (`Idempotency-Key`), refresco automático de tokens JWT en 401 y sincronización bidireccional con pantalla de resolución visual de conflictos (conservar local, descartar local o fusionar manualmente).
+La aplicación Flutter generada (`mobile-flutter`) implementa arquitectura offline-first con SQLite local (`sqflite`), cola transaccional (outbox) con reintentos e idempotencia (`Idempotency-Key`), refresco automático de tokens JWT en 401 y sincronización bidireccional con pantalla de resolución visual de conflictos (conservar local, descartar local o fusionar manualmente).
 
 ### Asistente local: texto, voz y fotografía
 
@@ -136,7 +152,7 @@ No es necesario descargar un LLM en el teléfono. El OCR latino se empaqueta con
 
 Comandos de verificación y pruebas móviles:
 ```powershell
-cd mobile_parcial
+cd mobile-flutter
 flutter pub get
 flutter analyze --no-fatal-infos
 flutter test
@@ -152,7 +168,7 @@ El agente local permite generar y ejecutar la aplicación Flutter directamente d
 pnpm agent:install
 ```
 
-Esto instala las dependencias de Node.js y compila el agente TypeScript en `scripts/local-agent/dist/`.
+Esto instala las dependencias de Node.js y compila el agente TypeScript en `mobile-flutter/tools/local-agent/dist/`.
 
 ### Uso
 
@@ -206,4 +222,4 @@ El agente local solicita `POST /api/v1/diagrams/{diagramId}/generation-jobs/{job
 - **Agente no responde:** verifica que esté corriendo con `pnpm agent:start` y que el puerto 9876 esté libre.
 - **Firma inválida:** asegura que la clave de firma del agente coincida con la del backend (`app.mobile-spec.secret`).
 
-Consulta [PLAN.md](./PLAN.md), [arquitectura](./docs/architecture.md) y el [contrato UML JSON](./docs/uml-json-contract.md).
+Consulta la [hoja de ruta](./docs/product/roadmap.md), la [arquitectura](./docs/architecture.md) y el [contrato UML JSON](./docs/uml-json-contract.md).

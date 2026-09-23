@@ -1,0 +1,6 @@
+# Copy outside Git as backend.hcl and use a different key for each environment.
+bucket         = "replace-with-bootstrap-state-bucket"
+key            = "collab-modeler/test/terraform.tfstate"
+region         = "us-east-1"
+dynamodb_table = "collab-modeler-terraform-locks"
+encrypt        = true

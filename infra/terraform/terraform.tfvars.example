@@ -1,5 +1,11 @@
-aws_region          = "us-east-1"
-environment         = "dev"
-project_name        = "collab-modeler"
-api_image           = "123456789012.dkr.ecr.us-east-1.amazonaws.com/collab-modeler-dev-api:sha-0000000"
-ai_api_key          = "replace-me"
+aws_region   = "us-east-1"
+project_name = "collab-modeler"
+
+# Select environments/test.tfvars or environments/prod.tfvars as well.
+# These optional values activate the DNS, ACM and SES configuration.
+domain_name     = "test.example.com"
+route53_zone_id = "Z0123456789ABCDEF"
+
+# Supply API image and all secret inputs with TF_VAR_* from GitHub Environments
+# or a local secret manager. Do not put them in a .tfvars file.
+# TF_VAR_api_image=123456789012.dkr.ecr.us-east-1.amazonaws.com/collab-modeler-api:sha-FULL_COMMIT_SHA

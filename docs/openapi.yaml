@@ -1,0 +1,88 @@
+openapi: 3.0.3
+info:
+  title: Collab Modeler API
+  version: v1
+  description: Contrato público del servidor de Collab Modeler. Todas las rutas REST públicas usan /api/v1.
+servers:
+  - url: http://localhost:8080
+paths:
+  /api/v1/auth/me:
+    get: { summary: Sesión actual y token CSRF, responses: { '200': { description: Sesión, content: { application/json: { schema: { $ref: '#/components/schemas/CurrentUser' } } } } } }
+  /api/v1/auth/register:
+    post: { summary: Registro exclusivamente con invitación, requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/RegisterRequest' } } } }, responses: { '201': { description: Correo de verificación solicitado }, '403': { $ref: '#/components/responses/Forbidden' } } }
+  /api/v1/auth/login:
+    post: { summary: Inicio local, requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/LoginRequest' } } } }, responses: { '200': { description: Sesión, content: { application/json: { schema: { $ref: '#/components/schemas/CurrentUser' } } } }, '401': { $ref: '#/components/responses/Unauthorized' } } }
+  /api/v1/auth/verify:
+    post: { summary: Consume token de correo de un uso, requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/TokenRequest' } } } }, responses: { '200': { description: Cuenta verificada } } }
+  /api/v1/auth/password/forgot:
+    post: { summary: Solicita recuperación, responses: { '202': { description: Respuesta no enumerante } } }
+  /api/v1/auth/password/reset:
+    post: { summary: Restablece contraseña con token de un uso, responses: { '200': { description: Contraseña actualizada } } }
+  /api/v1/diagrams:
+    get: { summary: Lista diagramas accesibles, responses: { '200': { description: Diagramas } } }
+    post: { summary: Crea diagrama, responses: { '200': { description: Diagrama, content: { application/json: { schema: { $ref: '#/components/schemas/DiagramModel' } } } } } }
+  /api/v1/diagrams/{diagramId}:
+    parameters: [{ $ref: '#/components/parameters/DiagramId' }]
+    get: { summary: Instantánea autoritativa, responses: { '200': { description: Diagrama, content: { application/json: { schema: { $ref: '#/components/schemas/DiagramModel' } } } } } }
+  /api/v1/diagrams/{diagramId}/operations:
+    parameters: [{ $ref: '#/components/parameters/DiagramId' }]
+    get: { summary: Operaciones posteriores a una revisión, responses: { '200': { description: Historial } } }
+    post: { summary: Aplica operación idempotente y versionada, requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/DiagramOperation' } } } }, responses: { '200': { description: Nuevo modelo }, '409': { $ref: '#/components/responses/Conflict' } } }
+  /api/v1/diagrams/{diagramId}/members:
+    parameters: [{ $ref: '#/components/parameters/DiagramId' }]
+    get: { summary: Lista miembros, responses: { '200': { description: Miembros } } }
+  /api/v1/diagrams/{diagramId}/share-link:
+    parameters: [{ $ref: '#/components/parameters/DiagramId' }]
+    post: { summary: Activa o rota enlace de propietario, responses: { '200': { description: Token entregado una vez } } }
+    delete: { summary: Revoca enlace, responses: { '204': { description: Revocado } } }
+  /api/v1/join/{token}:
+    post: { summary: Solicita acceso desde enlace, responses: { '200': { description: Acceso o estado pendiente } } }
+  /api/v1/diagrams/{diagramId}/versions:
+    parameters: [{ $ref: '#/components/parameters/DiagramId' }]
+    get: { summary: Lista hitos, responses: { '200': { description: Versiones } } }
+    post: { summary: Crea hito inmutable, responses: { '200': { description: Hito } } }
+  /api/v1/diagrams/{diagramId}/versions/{versionId}/restore:
+    parameters:
+      - { $ref: '#/components/parameters/DiagramId' }
+      - { name: versionId, in: path, required: true, schema: { type: string, format: uuid } }
+    post: { summary: Restaura creando una nueva revisión, responses: { '200': { description: Nuevo modelo }, '409': { $ref: '#/components/responses/Conflict' } } }
+  /api/v1/diagrams/{diagramId}/comments:
+    parameters: [{ $ref: '#/components/parameters/DiagramId' }]
+    get: { summary: Lista comentarios, responses: { '200': { description: Comentarios } } }
+    post: { summary: Publica comentario anclado, responses: { '200': { description: Comentario } } }
+  /api/v1/diagrams/{diagramId}/xmi:
+    parameters: [{ $ref: '#/components/parameters/DiagramId' }]
+    get: { summary: Exporta XMI 2.1, responses: { '200': { description: XMI, content: { application/xml: {} } } } }
+  /api/v1/diagrams/{diagramId}/xmi/preview:
+    parameters: [{ $ref: '#/components/parameters/DiagramId' }]
+    post: { summary: Valida XMI sin escribir, responses: { '200': { description: Previsualización } } }
+  /api/v1/diagrams/{diagramId}/assistant/proposals:
+    parameters: [{ $ref: '#/components/parameters/DiagramId' }]
+    post: { summary: Previsualiza operación IA sin persistir, responses: { '200': { description: Propuesta } } }
+  /api/v1/diagrams/{diagramId}/assistant/proposals/{proposalId}/apply:
+    parameters:
+      - { $ref: '#/components/parameters/DiagramId' }
+      - { name: proposalId, in: path, required: true, schema: { type: string, format: uuid } }
+    post: { summary: Confirma propuesta prevalidada, responses: { '200': { description: Operación aplicada } } }
+  /api/v1/diagrams/{diagramId}/image-preview:
+    parameters: [{ $ref: '#/components/parameters/DiagramId' }]
+    post: { summary: Analiza imagen sin escribir, responses: { '200': { description: Propuesta de modelo } } }
+  /api/v1/diagrams/{diagramId}/generation-jobs:
+    parameters: [{ $ref: '#/components/parameters/DiagramId' }]
+    post: { summary: Encola generación desde hito, parameters: [{ name: Idempotency-Key, in: header, required: true, schema: { type: string } }], responses: { '200': { description: Trabajo durable } } }
+    get: { summary: Lista trabajos de generación, responses: { '200': { description: Trabajos } } }
+components:
+  parameters:
+    DiagramId: { name: diagramId, in: path, required: true, schema: { type: string, format: uuid } }
+  responses:
+    Unauthorized: { description: Sesión requerida, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+    Forbidden: { description: Rol insuficiente, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+    Conflict: { description: Revisión o versión incompatible, content: { application/problem+json: { schema: { $ref: '#/components/schemas/Problem' } } } }
+  schemas:
+    CurrentUser: { type: object, required: [authenticated, verified, platformAdmin, csrfToken], properties: { authenticated: { type: boolean }, email: { type: string, nullable: true }, fullName: { type: string, nullable: true }, verified: { type: boolean }, platformAdmin: { type: boolean }, csrfToken: { type: string } } }
+    LoginRequest: { type: object, required: [email, password], properties: { email: { type: string, format: email }, password: { type: string, format: password } } }
+    RegisterRequest: { type: object, required: [fullName, email, password, passwordConfirmation, invitationToken], properties: { fullName: { type: string }, email: { type: string, format: email }, password: { type: string, format: password }, passwordConfirmation: { type: string, format: password }, invitationToken: { type: string } } }
+    TokenRequest: { type: object, required: [token], properties: { token: { type: string } } }
+    DiagramModel: { type: object, required: [id, name, revision, classes, enumerations, associations, generalizations, packages], properties: { id: { type: string, format: uuid }, name: { type: string }, revision: { type: integer, format: int64 }, classes: { type: array, items: { type: object } }, enumerations: { type: array, items: { type: object } }, associations: { type: array, items: { type: object } }, generalizations: { type: array, items: { type: object } }, packages: { type: array, items: { type: object } } } }
+    DiagramOperation: { type: object, required: [operationId, baseRevision, type, payload], properties: { operationId: { type: string, format: uuid }, baseRevision: { type: integer, format: int64 }, expectedElementVersion: { type: integer }, type: { type: string }, payload: { type: object } } }
+    Problem: { type: object, properties: { status: { type: integer }, code: { type: string }, detail: { type: string }, currentRevision: { type: integer }, elementId: { type: string } } }

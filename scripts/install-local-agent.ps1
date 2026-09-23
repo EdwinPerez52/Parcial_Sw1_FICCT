@@ -11,7 +11,7 @@ $nodeVersion = node --version
 Write-Host "    Node.js $nodeVersion" -ForegroundColor Green
 
 Write-Host "==> Instalando dependencias del agente local..." -ForegroundColor Cyan
-Push-Location scripts/local-agent
+Push-Location mobile-flutter/tools/local-agent
 try {
     npm install
     Write-Host "==> Compilando TypeScript..." -ForegroundColor Cyan

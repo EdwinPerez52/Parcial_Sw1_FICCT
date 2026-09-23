@@ -1,0 +1,72 @@
+name: Deploy test
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deployment-test
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    environment: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - uses: pnpm/action-setup@v4
+        with: { version: 11.19.0, run_install: false }
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - uses: aws-actions/amazon-ecr-login@v2
+        id: ecr
+      - name: Build and publish immutable API image
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          IMAGE: ${{ steps.ecr.outputs.registry }}/collab-modeler-api:sha-${{ github.sha }}
+        run: |
+          docker build --file Backend-web/Dockerfile --tag "$IMAGE" .
+          docker push "$IMAGE"
+      - uses: hashicorp/setup-terraform@v3
+        with: { terraform_version: 1.9.8 }
+      - name: Initialize test state and create reviewed plan
+        working-directory: infra/terraform
+        env:
+          TF_VAR_api_image: ${{ steps.ecr.outputs.registry }}/collab-modeler-api:sha-${{ github.sha }}
+          TF_VAR_generation_encryption_key: ${{ secrets.GENERATION_ENCRYPTION_KEY }}
+          TF_VAR_generation_download_secret: ${{ secrets.GENERATION_DOWNLOAD_SECRET }}
+          TF_VAR_mobile_spec_secret: ${{ secrets.MOBILE_SPEC_SECRET }}
+          TF_VAR_ses_smtp_username: ${{ secrets.SES_SMTP_USERNAME }}
+          TF_VAR_ses_smtp_password: ${{ secrets.SES_SMTP_PASSWORD }}
+          TF_VAR_ai_api_key: ${{ secrets.AI_API_KEY }}
+          TF_VAR_domain_name: ${{ vars.DOMAIN_NAME }}
+          TF_VAR_route53_zone_id: ${{ vars.ROUTE53_ZONE_ID }}
+        run: |
+          terraform init -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" -backend-config="key=collab-modeler/test/terraform.tfstate" -backend-config="region=${{ vars.AWS_REGION }}" -backend-config="dynamodb_table=${{ vars.TF_LOCK_TABLE }}" -backend-config="encrypt=true"
+          terraform plan -var-file=environments/test.tfvars -out=test.tfplan
+          terraform show -no-color test.tfplan > test-plan.txt
+      - uses: actions/upload-artifact@v4
+        with: { name: terraform-test-plan-${{ github.sha }}, path: infra/terraform/test-plan.txt }
+      - name: Apply the reviewed test plan
+        working-directory: infra/terraform
+        run: terraform apply -auto-approve test.tfplan
+      - name: Publish frontend and invalidate cache
+        working-directory: infra/terraform
+        run: |
+          corepack enable
+          corepack pnpm install --frozen-lockfile
+          corepack pnpm --filter @modeler/web build
+          aws s3 sync ../../Frontend-web/dist "s3://$(terraform output -raw web_bucket)" --delete --cache-control 'public,max-age=31536000,immutable' --exclude index.html
+          aws s3 cp ../../Frontend-web/dist/index.html "s3://$(terraform output -raw web_bucket)/index.html" --cache-control 'no-cache'
+          aws cloudfront create-invalidation --distribution-id "$(terraform output -raw cloudfront_distribution_id)" --paths '/*'
+      - name: Smoke test public health endpoint
+        working-directory: infra/terraform
+        run: curl --fail --retry 12 --retry-delay 10 "$(terraform output -raw application_url)/actuator/health"

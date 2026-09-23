@@ -1,0 +1,65 @@
+name: Promote production
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: Approved full commit SHA already deployed to test
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: deployment-production
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    runs-on: ubuntu-24.04
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: ${{ inputs.commit_sha }} }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - uses: pnpm/action-setup@v4
+        with: { version: 11.19.0, run_install: false }
+      - uses: aws-actions/configure-aws-credentials@v4
+        with: { role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}, aws-region: ${{ vars.AWS_REGION }} }
+      - uses: hashicorp/setup-terraform@v3
+        with: { terraform_version: 1.9.8 }
+      - name: Plan production before apply
+        working-directory: infra/terraform
+        env:
+          TF_VAR_api_image: ${{ vars.ECR_REGISTRY }}/collab-modeler-api:sha-${{ inputs.commit_sha }}
+          TF_VAR_generation_encryption_key: ${{ secrets.GENERATION_ENCRYPTION_KEY }}
+          TF_VAR_generation_download_secret: ${{ secrets.GENERATION_DOWNLOAD_SECRET }}
+          TF_VAR_mobile_spec_secret: ${{ secrets.MOBILE_SPEC_SECRET }}
+          TF_VAR_ses_smtp_username: ${{ secrets.SES_SMTP_USERNAME }}
+          TF_VAR_ses_smtp_password: ${{ secrets.SES_SMTP_PASSWORD }}
+          TF_VAR_ai_api_key: ${{ secrets.AI_API_KEY }}
+          TF_VAR_domain_name: ${{ vars.DOMAIN_NAME }}
+          TF_VAR_route53_zone_id: ${{ vars.ROUTE53_ZONE_ID }}
+        run: |
+          terraform init -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" -backend-config="key=collab-modeler/prod/terraform.tfstate" -backend-config="region=${{ vars.AWS_REGION }}" -backend-config="dynamodb_table=${{ vars.TF_LOCK_TABLE }}" -backend-config="encrypt=true"
+          terraform plan -var-file=environments/prod.tfvars -out=prod.tfplan
+          terraform show -no-color prod.tfplan > prod-plan.txt
+      - uses: actions/upload-artifact@v4
+        with: { name: terraform-prod-plan-${{ inputs.commit_sha }}, path: infra/terraform/prod-plan.txt }
+      - name: Apply approved production plan
+        working-directory: infra/terraform
+        run: terraform apply -auto-approve prod.tfplan
+      - name: Publish approved frontend and invalidate cache
+        working-directory: infra/terraform
+        run: |
+          corepack pnpm install --frozen-lockfile
+          corepack pnpm --filter @modeler/web build
+          aws s3 sync ../../Frontend-web/dist "s3://$(terraform output -raw web_bucket)" --delete --cache-control 'public,max-age=31536000,immutable' --exclude index.html
+          aws s3 cp ../../Frontend-web/dist/index.html "s3://$(terraform output -raw web_bucket)/index.html" --cache-control 'no-cache'
+          aws cloudfront create-invalidation --distribution-id "$(terraform output -raw cloudfront_distribution_id)" --paths '/*'
+      - name: Smoke test production
+        working-directory: infra/terraform
+        run: curl --fail --retry 12 --retry-delay 10 "$(terraform output -raw application_url)/actuator/health"

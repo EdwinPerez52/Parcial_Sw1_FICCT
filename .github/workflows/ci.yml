@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: modeler
+          POSTGRES_USER: modeler
+          POSTGRES_PASSWORD: modeler
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U modeler" --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - uses: pnpm/action-setup@v4
+        with: { version: 11.19.0, run_install: false }
+      - name: Install web dependencies from lockfile
+        run: pnpm install --frozen-lockfile
+      - name: Test and build web
+        run: |
+          pnpm --filter @modeler/web test
+          pnpm --filter @modeler/web build
+      - name: Audit production web dependencies
+        run: pnpm audit --prod --audit-level=high
+      - name: Install local agent from lockfile
+        working-directory: mobile-flutter/tools/local-agent
+        run: npm ci
+      - name: Test and build local agent
+        working-directory: mobile-flutter/tools/local-agent
+        run: |
+          npm test
+          npm run build
+          npm audit --omit=dev --audit-level=high
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '21', cache: maven }
+      - name: Validate Flyway migrations against PostgreSQL
+        working-directory: Backend-web
+        run: >-
+          ./mvnw -B
+          -Dflyway.url=jdbc:postgresql://localhost:5432/modeler
+          -Dflyway.user=modeler -Dflyway.password=modeler
+          flyway:migrate flyway:validate
+      - name: Verify backend including Testcontainers integration tests
+        working-directory: Backend-web
+        run: ./mvnw -B verify
+      - name: Report Maven dependency graph
+        working-directory: Backend-web
+        run: ./mvnw -B dependency:tree
+      - uses: subosito/flutter-action@v2
+        with: { channel: stable, cache: true }
+      - name: Analyze, test and build Android from pubspec.lock
+        working-directory: mobile-flutter
+        run: |
+          flutter pub get
+          flutter analyze
+          flutter test
+          flutter build apk --debug
+      - name: Build immutable container candidates
+        run: |
+          docker build --file Backend-web/Dockerfile --tag collab-modeler-api:${{ github.sha }} .
+          docker build --file Frontend-web/Dockerfile --tag collab-modeler-web:${{ github.sha }} .
+      - uses: hashicorp/setup-terraform@v3
+        with: { terraform_version: 1.9.8 }
+      - name: Terraform formatting and validation
+        working-directory: infra/terraform
+        run: |
+          terraform fmt -check -recursive
+          terraform init -backend=false
+          terraform validate
+          terraform -chdir=bootstrap init -backend=false
+          terraform -chdir=bootstrap validate

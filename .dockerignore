@@ -6,7 +6,7 @@
 **/*.tsbuildinfo
 
 # Artefactos de compilación y cachés locales.
-backend_parcial/target
+Backend-web/target
 .m2
 .git
 

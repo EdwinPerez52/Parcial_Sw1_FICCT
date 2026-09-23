@@ -3,9 +3,13 @@ dist/
 target/
 .mvn/wrapper/dists/
 .m2/
+scratch/m2-ci/
 .pnpm-store/
 .idea/
 .vscode/
+.agents/
+.codex-remote-attachments/
+skills-lock.json
 *.iml
 .env
 .env.*
@@ -32,5 +36,9 @@ secrets/
 application-local.yml
 *.log
 *.tsbuildinfo
-frontend_parcial/vite.config.js
-frontend_parcial/vite.config.d.ts
+Frontend-web/vite.config.js
+Frontend-web/vite.config.d.ts
+.playwright-cli/
+scratch/
+# Documentación local para consulta; no se publica en el repositorio.
+/documentacion proyecto/

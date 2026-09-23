@@ -26,6 +26,6 @@ if (Test-Path -LiteralPath $environmentFile) {
 }
 
 $env:SPRING_PROFILES_ACTIVE = "dev"
-Set-Location (Join-Path $repositoryRoot "backend_parcial")
+Set-Location (Join-Path $repositoryRoot "Backend-web")
 & .\mvnw.cmd spring-boot:run
 exit $LASTEXITCODE
