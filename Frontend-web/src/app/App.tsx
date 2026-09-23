@@ -131,9 +131,16 @@ export default function App({ projectId, userName, role, onBack, onLogout }: { p
   const lastCursorSent = useRef(0);
 
   useEffect(() => {
-    let dispose: () => void = () => undefined;
-    void initialize(projectId).then(callback => { dispose = callback; });
-    return () => dispose();
+    let cancelled = false;
+    let dispose: (() => void) | undefined;
+    void initialize(projectId).then(callback => {
+      if (cancelled) callback();
+      else dispose = callback;
+    });
+    return () => {
+      cancelled = true;
+      dispose?.();
+    };
   }, [initialize, projectId]);
 
   useEffect(() => () => speechSession.current?.stop(), []);

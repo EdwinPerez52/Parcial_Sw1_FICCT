@@ -48,6 +48,7 @@ const storageKey = (id: string) => `collab-modeler:pending:${id}`;
 let draining = false;
 let channel: DiagramChannel | undefined;
 let heartbeat: ReturnType<typeof setInterval> | undefined;
+let initializationSequence = 0;
 
 function persisted(id: string): QueuedOperation[] {
   try { return (JSON.parse(localStorage.getItem(storageKey(id)) ?? '[]') as QueuedOperation[]).filter(value => value.status !== 'acknowledged'); }
@@ -143,16 +144,27 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
   diagram: emptyDiagram(), serverDiagram: emptyDiagram(), confirmedRevision: 0, selectedIds: [], history: [], redoHistory: [],
   pendingOperations: [], conflicts: [], participants: [], eventSequence: 0, syncState: 'connecting',
   initialize: async requestedId => {
+    const sequence = ++initializationSequence;
+    channel?.close();
+    channel = undefined;
+    if (heartbeat) clearInterval(heartbeat);
+    heartbeat = undefined;
+
     try {
       const serverDiagram = normalizeDiagram(await diagramApi.get(requestedId)); const queue = persisted(requestedId);
+      if (sequence !== initializationSequence) return () => undefined;
+
       set({ diagram: replay(serverDiagram, queue), serverDiagram, confirmedRevision: serverDiagram.revision, diagramId: requestedId,
         pendingOperations: queue, conflicts: queue.filter(value => value.status === 'rejected').map(value => ({
           operationId: value.operation.operationId, message: value.error ?? 'Cambio rechazado por el servidor',
           localDiagram: value.localDiagram, serverDiagram,
         })), participants: [], syncState: 'connecting', lastError: undefined });
-      channel?.close(); if (heartbeat) clearInterval(heartbeat);
-      channel = subscribeToDiagram(requestedId, {
+      let ownedChannel: DiagramChannel | undefined;
+      let ownedHeartbeat: ReturnType<typeof setInterval> | undefined;
+      const isCurrent = () => sequence === initializationSequence && channel === ownedChannel;
+      ownedChannel = subscribeToDiagram(requestedId, {
         receive: (event: RealtimeEvent) => {
+          if (!isCurrent()) return;
           if (event.type === 'PRESENCE') set({ participants: event.payload.participants });
           else if (event.type === 'OPERATION_APPLIED') {
             const remote = normalizeDiagram(event.payload.diagram); const state = get();
@@ -166,16 +178,30 @@ export const useDiagramStore = create<DiagramState>((set, get) => ({
             set({ serverDiagram: remote, confirmedRevision: remote.revision, diagram: replay(remote, state.pendingOperations), eventSequence: state.eventSequence + 1 });
           } else set(state => ({ eventSequence: state.eventSequence + 1 }));
         },
-        connected: () => { set({ syncState: 'online' }); void recoverRemote(requestedId, get().serverDiagram).then(remote => {
+        connected: () => { if (!isCurrent()) return; set({ syncState: 'online' }); void recoverRemote(requestedId, get().serverDiagram).then(remote => {
+          if (!isCurrent()) return;
           const state = get(); set({ serverDiagram: remote, confirmedRevision: remote.revision, diagram: replay(remote, state.pendingOperations) }); void drainQueue();
         }); },
-        disconnected: () => set({ syncState: 'offline' }),
+        disconnected: () => { if (isCurrent()) set({ syncState: 'offline' }); },
       });
-      heartbeat = setInterval(() => channel?.presence({ kind: 'HEARTBEAT', selection: get().selectedIds }), 20000);
-      const online = () => void drainQueue(); const offline = () => set({ syncState: 'offline' });
+      channel = ownedChannel;
+      ownedHeartbeat = setInterval(() => ownedChannel?.presence({ kind: 'HEARTBEAT', selection: get().selectedIds }), 20000);
+      heartbeat = ownedHeartbeat;
+      const online = () => { if (isCurrent()) void drainQueue(); };
+      const offline = () => { if (isCurrent()) set({ syncState: 'offline' }); };
       window.addEventListener('online', online); window.addEventListener('offline', offline); void drainQueue();
-      return () => { channel?.close(); channel = undefined; if (heartbeat) clearInterval(heartbeat); window.removeEventListener('online', online); window.removeEventListener('offline', offline); };
-    } catch (cause) { set({ syncState: 'offline', lastError: cause instanceof Error ? cause.message : 'API no disponible' }); return () => undefined; }
+      return () => {
+        ownedChannel?.close();
+        if (ownedHeartbeat) clearInterval(ownedHeartbeat);
+        window.removeEventListener('online', online); window.removeEventListener('offline', offline);
+        if (sequence === initializationSequence) initializationSequence++;
+        if (channel === ownedChannel) channel = undefined;
+        if (heartbeat === ownedHeartbeat) heartbeat = undefined;
+      };
+    } catch (cause) {
+      if (sequence === initializationSequence) set({ syncState: 'offline', lastError: cause instanceof Error ? cause.message : 'API no disponible' });
+      return () => undefined;
+    }
   },
   selectElements: selectedIds => {
     // React Flow reports the current selection again after receiving controlled
