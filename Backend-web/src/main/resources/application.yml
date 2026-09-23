@@ -25,6 +25,7 @@ spring:
       max-file-size: 10MB
       max-request-size: 11MB
 server:
+  port: ${PORT:8080}
   forward-headers-strategy: framework
   servlet:
     session:
