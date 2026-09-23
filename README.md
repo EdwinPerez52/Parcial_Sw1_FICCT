@@ -47,7 +47,7 @@ pnpm dev:web
 
 `dev:api` carga las variables locales de `.env` sin imprimirlas y activa el perfil Spring `dev` mediante `SPRING_PROFILES_ACTIVE`, evitando problemas de interpretación de argumentos `-D` en PowerShell.
 
-El backend también importa el `.env` automáticamente al arrancar desde Maven o el IDE, con directorio de trabajo en la raíz del repositorio o en `Backend-web`. Usa valores sin comillas en ese archivo (`AI_API_KEY=...`); las variables del proceso tienen prioridad. Los perfiles `prod` y `test` no importan el archivo local. Reinicia el backend después de cambiar `.env`.
+El backend también importa el `.env` automáticamente al arrancar desde Maven o el IDE, con directorio de trabajo en la raíz del repositorio o en `Backend-web`. Usa valores sin comillas en ese archivo (`OPENAI_API_KEY=...` o `GEMINI_API_KEY=...`); las variables del proceso tienen prioridad. Los perfiles `prod` y `test` no importan el archivo local. Reinicia el backend después de cambiar `.env`.
 
 Detén los contenedores sin borrar el volumen de PostgreSQL con `pnpm stop`.
 
@@ -91,9 +91,11 @@ Al fusionar un commit aprobado a `main`, el flujo publica `collab-modeler-api:sh
 | `APP_PUBLIC_URL` | Base de enlaces enviados por correo | `http://localhost:5173` |
 | `MAIL_HOST` / `MAIL_PORT` | SMTP de desarrollo | `localhost` / `1025` |
 | `SES_SMTP_HOST`, `SES_SMTP_USERNAME`, `SES_SMTP_PASSWORD` | Amazon SES SMTP (`prod`) | obligatorias en producción |
-| `AI_API_KEY` | Proveedor de IA | sin valor |
-| `AI_PROVIDER` | Adaptador de texto (`openai`) | `openai` |
-| `AI_BASE_URL`, `AI_TEXT_MODEL`, `AI_VISION_MODEL`, `AI_AUDIO_MODEL` | Adaptadores de IA | consulta `.env.example` |
+| `OPENAI_API_KEY`, `GEMINI_API_KEY` | Credenciales de los proveedores de IA | sin valor |
+| `AI_API_KEY` | Alias heredado de `OPENAI_API_KEY` | sin valor |
+| `AI_PROVIDER` | Selección `auto`, `openai` o `gemini`; `auto` prioriza OpenAI | `auto` |
+| `AI_BASE_URL`, `AI_TEXT_MODEL`, `AI_VISION_MODEL`, `AI_AUDIO_MODEL` | Configuración de OpenAI | consulta `.env.example` |
+| `GEMINI_BASE_URL`, `GEMINI_TEXT_MODEL`, `GEMINI_VISION_MODEL`, `GEMINI_FALLBACK_MODEL` | Configuración de Gemini | consulta `.env.example` |
 
 El perfil `dev` usa autenticación real, PostgreSQL y Mailpit, con cookie HTTP local. `prod` activa cookie `Secure` y Amazon SES SMTP. Configura `APP_BOOTSTRAP_ADMIN_EMAIL`, abre la invitación en Mailpit y completa el registro inicial; el registro público sin invitación está bloqueado.
 
@@ -101,15 +103,15 @@ El perfil `dev` usa autenticación real, PostgreSQL y Mailpit, con cookie HTTP l
 
 El asistente de texto usa el mismo contrato `DiagramOperation` que el editor manual. El backend interpreta primero con un parser local determinista; solo las instrucciones no reconocidas usan el adaptador configurado por `AI_PROVIDER`. Toda propuesta se valida en seco contra la revisión real del diagrama. Las eliminaciones y los lotes de más de cinco operaciones muestran una previsualización y requieren confirmación.
 
-Las propuestas expiran y no guardan el texto original: se conserva únicamente su hash, la operación validada, autor y proveedor. La aplicación se realiza por el servicio transaccional normal y queda registrada con origen `ASSISTANT`. Sin `AI_API_KEY`, los comandos locales continúan funcionando y los complejos responden 503 sin alterar el modelo.
+Las propuestas expiran y no guardan el texto original: se conserva únicamente su hash, la operación validada, autor y proveedor. La aplicación se realiza por el servicio transaccional normal y queda registrada con origen `ASSISTANT`. Sin una clave del proveedor seleccionado, los comandos locales continúan funcionando y los complejos responden 503 sin alterar el modelo.
 
-Para validar el adaptador contra el proveedor real, guarda `AI_API_KEY` únicamente en tu `.env` local (nunca en `.env.example` ni en Git), levanta de nuevo el entorno con `pnpm dev` y prueba una instrucción compleja que no reconozca el parser local. Comprueba primero la previsualización y confirma después la propuesta. Docker Compose transmite `AI_PROVIDER`, `AI_BASE_URL`, `AI_API_KEY`, `AI_TEXT_MODEL`, `AI_VISION_MODEL` y `AI_AUDIO_MODEL` al backend. Una suscripción de ChatGPT no incluye automáticamente crédito de API: la cuenta de API debe tener facturación o crédito disponible.
+Para validar el adaptador contra un proveedor real, guarda `OPENAI_API_KEY` o `GEMINI_API_KEY` únicamente en tu `.env` local (nunca en `.env.example` ni en Git), levanta de nuevo el entorno con `pnpm dev` y prueba una instrucción compleja que no reconozca el parser local. `AI_PROVIDER=auto` usa OpenAI cuando ambas claves existen y Gemini cuando solo existe su clave; usa `AI_PROVIDER=gemini` para forzar Gemini. Comprueba primero la previsualización y confirma después la propuesta. Docker Compose transmite la selección, ambas credenciales y los modelos al backend. Una suscripción de ChatGPT no incluye automáticamente crédito de API: la cuenta de API debe tener facturación o crédito disponible.
 
 El parser local admite variantes como `crear clase Factura`, `crea la clase Factura`, `créame una clase Factura` y `añade una clase Factura`. Para un modelo de dominio puede usarse, por ejemplo, `Genera un diagrama breve de base de datos para una farmacia con sus tablas, atributos, relaciones principales y cardinalidades`. El proveedor devuelve operaciones estrictas; el adaptador completa de forma incremental un modelo de 4 a 8 clases y al menos 3 asociaciones cuando una respuesta no cabe en una sola llamada, normaliza alias de tipos habituales y entrega el `BATCH` a la validación normal del backend. El lote se muestra como previsualización y no modifica el diagrama hasta ser confirmado.
 
-En el editor, abre **Asistente** y pulsa el micrófono. Habla y pulsa **Transcribir grabación**; se muestran los estados de permiso, grabación, transcripción y error con reintento. La web graba hasta 15 segundos y envía el audio a `/api/v1/diagrams/{id}/assistant/transcriptions`, que requiere editor y `AI_API_KEY`; si la transcripción del servidor no está disponible, intenta el reconocimiento del navegador. El texto resultante pasa exactamente por el mismo endpoint de propuestas y validación que una instrucción escrita. El micrófono requiere permiso del navegador.
+En el editor, abre **Asistente** y pulsa el micrófono. Habla y pulsa **Transcribir grabación**; se muestran los estados de permiso, grabación, transcripción y error con reintento. La web graba hasta 15 segundos y envía el audio a `/api/v1/diagrams/{id}/assistant/transcriptions`. La transcripción del servidor requiere OpenAI; con Gemini se usa el reconocimiento del navegador. El texto resultante pasa exactamente por el mismo endpoint de propuestas y validación que una instrucción escrita. El micrófono requiere permiso del navegador.
 
-Para importar una fotografía, un propietario o editor pulsa **Fotografía** en la barra izquierda o **Analizar fotografía** en el panel Asistente y elige PNG, JPEG o WebP de hasta 10 MB. El servidor verifica el formato real y limita ancho, alto y píxeles antes de invocar el adaptador de visión. La respuesta debe contener clases, atributos, relaciones, advertencias y confianza entre 0 y 1. La vista previa permite corregir nombres, tipos y relaciones. Cancelar no modifica el modelo; confirmar lo incorpora como un único `BATCH` y una acción de deshacer revierte toda la importación. El análisis de imagen requiere `AI_API_KEY`.
+Para importar una fotografía, un propietario o editor pulsa **Fotografía** en la barra izquierda o **Analizar fotografía** en el panel Asistente y elige PNG, JPEG o WebP de hasta 10 MB. El servidor verifica el formato real y limita ancho, alto y píxeles antes de invocar el adaptador de visión. La respuesta debe contener clases, atributos, relaciones, advertencias y confianza entre 0 y 1. La vista previa permite corregir nombres, tipos y relaciones. Cancelar no modifica el modelo; confirmar lo incorpora como un único `BATCH` y una acción de deshacer revierte toda la importación. El análisis de imagen requiere la clave del proveedor seleccionado.
 
 ## Colaboración y trabajo sin conexión
 

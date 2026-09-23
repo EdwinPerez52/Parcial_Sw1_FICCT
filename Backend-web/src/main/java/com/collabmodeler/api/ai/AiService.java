@@ -23,7 +23,7 @@ public class AiService {
             "Convierte tipos SQL equivalentes a los tipos escalares permitidos. Si no hay un diagrama reconocible, devuelve " +
             "classes y associations vacíos, baja confianza y una advertencia clara.";
         String dataUrl = "data:" + contentType + ";base64," + Base64.getEncoder().encodeToString(image);
-        JsonNode result = chat(properties.getVisionModel(), List.of(Map.of("role", "user", "content", List.of(
+        JsonNode result = chat(properties.activeVisionModel(), List.of(Map.of("role", "user", "content", List.of(
             Map.of("type", "text", "text", prompt),
             Map.of("type", "image_url", "image_url", Map.of("url", dataUrl, "detail", "high"))))), imageResponseFormat());
         return ImageProposalValidator.validate(result);
@@ -36,7 +36,7 @@ public class AiService {
             "No inventes datos ni generes SQL o código. " +
             (contextPrompt != null && !contextPrompt.isBlank() ? " Contexto adicional del usuario: " + contextPrompt : "");
         String dataUrl = "data:" + contentType + ";base64," + Base64.getEncoder().encodeToString(image);
-        JsonNode node = chat(properties.getVisionModel(), List.of(Map.of("role", "user", "content", List.of(Map.of("type", "text", "text", prompt), Map.of("type", "image_url", "image_url", Map.of("url", dataUrl))))));
+        JsonNode node = chat(properties.activeVisionModel(), List.of(Map.of("role", "user", "content", List.of(Map.of("type", "text", "text", prompt), Map.of("type", "image_url", "image_url", Map.of("url", dataUrl))))));
         return mapper.convertValue(node, Map.class);
     }
 
@@ -45,7 +45,7 @@ public class AiService {
         String systemPrompt = "Interpreta el comando del usuario para datos de una app móvil y responde en JSON: " +
             "{action:'create|update|delete|search', entity:'NombreEntidad', data:{clave:valor}, confidence:0.95}. " +
             "No generes SQL ni código ejecutable.";
-        String model = properties.getTextModel() != null && !properties.getTextModel().isBlank() ? properties.getTextModel() : properties.getVisionModel();
+        String model = properties.activeTextModel() != null && !properties.activeTextModel().isBlank() ? properties.activeTextModel() : properties.activeVisionModel();
         JsonNode node = chat(model, List.of(Map.of("role", "system", "content", systemPrompt), Map.of("role", "user", "content", userPrompt)));
         return mapper.convertValue(node, Map.class);
     }
@@ -54,21 +54,17 @@ public class AiService {
     }
 
     private JsonNode chat(String model, List<Map<String, Object>> messages, Map<String, Object> responseFormat) {
-        if (properties.getApiKey() == null || properties.getApiKey().isBlank()) throw new AiUnavailableException("Configura AI_API_KEY para usar el proveedor de IA");
+        if (properties.activeApiKey().isBlank()) throw new AiUnavailableException("Configura " + properties.requiredKeyName() + " para usar el proveedor de IA");
 
-        List<String> modelsToTry = new java.util.ArrayList<>();
-        modelsToTry.add(model);
-        if (properties.getBaseUrl() != null && properties.getBaseUrl().contains("generativelanguage.googleapis.com")) {
-            if (!"gemini-flash-latest".equals(model)) modelsToTry.add("gemini-flash-latest");
-            if (!"gemini-flash-lite-latest".equals(model)) modelsToTry.add("gemini-flash-lite-latest");
-        }
+        List<String> modelsToTry = model.equals(properties.activeVisionModel())
+            ? properties.activeVisionModels() : properties.activeTextModels();
 
         RestClientException lastException = null;
         for (String candidateModel : modelsToTry) {
             for (int attempt = 0; attempt < 2; attempt++) {
                 try {
-                    JsonNode response = rest.post().uri(properties.getBaseUrl() + "/chat/completions").contentType(MediaType.APPLICATION_JSON)
-                        .header("Authorization", "Bearer " + properties.getApiKey())
+                    JsonNode response = rest.post().uri(properties.activeBaseUrl() + "/chat/completions").contentType(MediaType.APPLICATION_JSON)
+                        .header("Authorization", "Bearer " + properties.activeApiKey())
                         .body(Map.of("model", candidateModel, "messages", messages, "temperature", 0,
                             "response_format", responseFormat))
                         .retrieve().body(JsonNode.class);
@@ -87,7 +83,7 @@ public class AiService {
                 }
             }
         }
-        throw new AiUnavailableException("El proveedor de IA no respondió correctamente. Revisa AI_API_KEY y AI_VISION_MODEL. Detalle: " + (lastException != null ? lastException.getMessage() : "Desconocido"));
+        throw new AiUnavailableException("El proveedor de IA no respondió correctamente. Revisa " + properties.requiredKeyName() + " y el modelo configurado. Detalle: " + (lastException != null ? lastException.getMessage() : "Desconocido"));
     }
 
     private Map<String, Object> imageResponseFormat() {

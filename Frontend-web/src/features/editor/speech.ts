@@ -55,7 +55,9 @@ export class SpeechSession {
           }).catch(cause => {
             if (this.completed) return;
             const browser = window as Window & { SpeechRecognition?: RecognitionConstructor; webkitSpeechRecognition?: RecognitionConstructor };
-            if (!this.completed && (cause as { status?: number }).status === 503 && (browser.SpeechRecognition || browser.webkitSpeechRecognition)) {
+            const status = (cause as { status?: number }).status;
+            if (!this.completed && (status === 0 || status === 502 || status === 503 || status === 504)
+              && (browser.SpeechRecognition || browser.webkitSpeechRecognition)) {
               this.status({ phase: 'permission', message: 'La transcripción del servidor no está disponible; repite la instrucción en el navegador…' });
               this.startBrowserRecognition(true);
             } else this.fail(cause instanceof Error ? cause.message : 'No se pudo transcribir el audio.');

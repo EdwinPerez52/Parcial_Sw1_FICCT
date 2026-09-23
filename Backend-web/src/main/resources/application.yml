@@ -53,12 +53,18 @@ app:
     presence-ttl-seconds: ${PRESENCE_TTL_SECONDS:45}
     allowed-origins: ${WEBSOCKET_ALLOWED_ORIGINS:http://localhost:5173}
   ai:
-    provider: ${AI_PROVIDER:openai}
+    provider: ${AI_PROVIDER:auto}
     base-url: ${AI_BASE_URL:https://api.openai.com/v1}
     api-key: ${AI_API_KEY:}
+    openai-api-key: ${OPENAI_API_KEY:${AI_API_KEY:}}
+    gemini-api-key: ${GEMINI_API_KEY:}
     text-model: ${AI_TEXT_MODEL:gpt-4.1-mini}
     vision-model: ${AI_VISION_MODEL:gpt-4.1-mini}
     audio-model: ${AI_AUDIO_MODEL:gpt-4o-mini-transcribe}
+    gemini-base-url: ${GEMINI_BASE_URL:https://generativelanguage.googleapis.com/v1beta/openai}
+    gemini-text-model: ${GEMINI_TEXT_MODEL:gemini-3.8-flash}
+    gemini-vision-model: ${GEMINI_VISION_MODEL:gemini-3.8-flash}
+    gemini-fallback-model: ${GEMINI_FALLBACK_MODEL:gemini-3.5-flash-lite}
     proposal-minutes: ${AI_PROPOSAL_MINUTES:15}
     max-instruction-length: ${AI_MAX_INSTRUCTION_LENGTH:2000}
   generation:

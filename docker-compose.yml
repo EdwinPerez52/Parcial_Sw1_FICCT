@@ -47,12 +47,18 @@ services:
       MAIL_PORT: 1025
       APP_PUBLIC_URL: http://localhost:5173
       APP_BOOTSTRAP_ADMIN_EMAIL: ${APP_BOOTSTRAP_ADMIN_EMAIL:-}
-      AI_PROVIDER: ${AI_PROVIDER:-openai}
+      AI_PROVIDER: ${AI_PROVIDER:-auto}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       AI_BASE_URL: ${AI_BASE_URL:-https://api.openai.com/v1}
       AI_API_KEY: ${AI_API_KEY:-}
       AI_TEXT_MODEL: ${AI_TEXT_MODEL:-gpt-4.1-mini}
       AI_VISION_MODEL: ${AI_VISION_MODEL:-gpt-4.1-mini}
       AI_AUDIO_MODEL: ${AI_AUDIO_MODEL:-gpt-4o-mini-transcribe}
+      GEMINI_BASE_URL: ${GEMINI_BASE_URL:-https://generativelanguage.googleapis.com/v1beta/openai}
+      GEMINI_TEXT_MODEL: ${GEMINI_TEXT_MODEL:-gemini-3.8-flash}
+      GEMINI_VISION_MODEL: ${GEMINI_VISION_MODEL:-gemini-3.8-flash}
+      GEMINI_FALLBACK_MODEL: ${GEMINI_FALLBACK_MODEL:-gemini-3.5-flash-lite}
     ports:
       - "8080:8080"
     depends_on:

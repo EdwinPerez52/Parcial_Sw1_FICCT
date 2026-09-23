@@ -63,12 +63,12 @@ public class OpenAiTextCommandProvider implements TextCommandProvider {
         this.properties = properties; this.mapper = mapper; this.rest = builder.build();
     }
 
-    @Override public String id() { return "openai:" + properties.getTextModel(); }
+    @Override public String id() { return properties.activeProvider() + ":" + properties.activeTextModel(); }
 
     @Override
     public DiagramOperationRequest interpret(String instruction, DiagramDocument diagram) {
-        if (properties.getApiKey() == null || properties.getApiKey().isBlank()) {
-            throw new AiUnavailableException("La instrucción no es simple y AI_API_KEY no está configurada");
+        if (properties.activeApiKey().isBlank()) {
+            throw new AiUnavailableException("La instrucción no es simple y " + properties.requiredKeyName() + " no está configurada");
         }
         String system = "Convierte exclusivamente la instrucción puntual en una DiagramOperation UML o BATCH. " +
             "Usa solo UUID y versiones presentes en el diagrama para editar, crea UUID v4 para elementos nuevos, " +
@@ -99,6 +99,7 @@ public class OpenAiTextCommandProvider implements TextCommandProvider {
                     }
                     completeDomainClasses(system, instruction, operations, diagram, tools);
                     requireUsefulClassSet(operations);
+                    removeInvalidDomainAssociations(operations);
                     completeDomainAssociations(system, instruction, operations, diagram, tools);
                     requireUsefulDomain(operations);
                 }
@@ -106,10 +107,10 @@ public class OpenAiTextCommandProvider implements TextCommandProvider {
             } catch (RestClientResponseException exception) {
                 int status = exception.getStatusCode().value();
                 if (status == 401 || status == 403) {
-                    throw new AiUnavailableException("OpenAI rechazó la credencial. Revisa AI_API_KEY y los permisos del proyecto.");
+                    throw new AiUnavailableException(providerName() + " rechazó la credencial. Revisa " + properties.requiredKeyName() + ".");
                 }
                 if (status == 429) {
-                    throw new AiUnavailableException("OpenAI rechazó la solicitud por límite o crédito insuficiente. Revisa la facturación y vuelve a intentarlo.");
+                    throw new AiUnavailableException(providerName() + " rechazó la solicitud por límite o crédito insuficiente. Revisa la facturación y vuelve a intentarlo.");
                 }
                 lastFailure = exception;
             } catch (Exception exception) {
@@ -152,15 +153,29 @@ public class OpenAiTextCommandProvider implements TextCommandProvider {
     }
 
     private JsonNode request(String system, String user, List<Map<String, Object>> tools) {
-        return rest.post().uri(properties.getBaseUrl() + "/chat/completions")
-            .contentType(MediaType.APPLICATION_JSON).header("Authorization", "Bearer " + properties.getApiKey())
-            .body(Map.of(
-                "model", properties.getTextModel(), "temperature", 0,
-                "messages", List.of(Map.of("role", "system", "content", system),
-                    Map.of("role", "user", "content", user)),
-                "tools", tools,
-                "tool_choice", "required"))
-            .retrieve().body(JsonNode.class);
+        RestClientResponseException lastFailure = null;
+        for (String model : properties.activeTextModels()) {
+            try {
+                return rest.post().uri(properties.activeBaseUrl() + "/chat/completions")
+                    .contentType(MediaType.APPLICATION_JSON).header("Authorization", "Bearer " + properties.activeApiKey())
+                    .body(Map.of(
+                        "model", model, "temperature", 0,
+                        "messages", List.of(Map.of("role", "system", "content", system),
+                            Map.of("role", "user", "content", user)),
+                        "tools", tools,
+                        "tool_choice", "required"))
+                    .retrieve().body(JsonNode.class);
+            } catch (RestClientResponseException exception) {
+                lastFailure = exception;
+                int status = exception.getStatusCode().value();
+                if (!"gemini".equals(properties.activeProvider()) || (status != 429 && status != 503)) throw exception;
+            }
+        }
+        throw lastFailure;
+    }
+
+    private String providerName() {
+        return "gemini".equals(properties.activeProvider()) ? "Gemini" : "OpenAI";
     }
 
     private void completeDomainAssociations(String system, String instruction,
@@ -193,6 +208,13 @@ public class OpenAiTextCommandProvider implements TextCommandProvider {
                 }
             }
         }
+    }
+
+    private void removeInvalidDomainAssociations(List<DiagramOperationRequest> operations) {
+        Set<String> pairs = new java.util.HashSet<>();
+        operations.removeIf(value -> "ASSOCIATION_CREATED".equals(value.type())
+            && (!referencesCreatedClasses(value.payload(), operations)
+                || !pairs.add(associationPair(value.payload()))));
     }
 
     private boolean referencesCreatedClasses(JsonNode payload, List<DiagramOperationRequest> operations) {

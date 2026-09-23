@@ -62,7 +62,7 @@ public class AssistantCommandService {
     }
 
     private TextCommandProvider configuredProvider() {
-        String configured = properties.getProvider();
+        String configured = properties.activeProvider();
         return providers.stream().filter(value -> value.id().equals(configured) || value.id().startsWith(configured + ":")).findFirst()
             .orElseThrow(() -> new AiUnavailableException("Proveedor de IA no disponible: " + configured));
     }

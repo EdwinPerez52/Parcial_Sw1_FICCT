@@ -18,9 +18,9 @@ public class SpeechTranscriptionService {
     }
 
     public String transcribe(byte[] audio, String mime) {
-        if (!"openai".equals(properties.getProvider()) || properties.getApiKey() == null || properties.getApiKey().isBlank())
-            throw new AiUnavailableException("Configura AI_PROVIDER=openai y AI_API_KEY para transcribir voz");
-        if (properties.getBaseUrl() != null && properties.getBaseUrl().contains("generativelanguage.googleapis.com"))
+        if (!"openai".equals(properties.activeProvider()) || properties.activeApiKey().isBlank())
+            throw new AiUnavailableException("Configura AI_PROVIDER=openai y OPENAI_API_KEY para transcribir voz");
+        if (properties.activeBaseUrl().contains("generativelanguage.googleapis.com"))
             throw new AiUnavailableException("La transcripción de audio no está soportada con el proveedor Gemini. Usa el reconocimiento de voz del navegador.");
         String extension = "audio/webm".equals(mime) ? "webm" : "audio/ogg".equals(mime) ? "ogg" : "mp4";
         var body = new MultipartBodyBuilder();
@@ -32,11 +32,11 @@ public class SpeechTranscriptionService {
         }).contentType(MediaType.parseMediaType(mime));
         JsonNode response;
         try {
-            response = rest.post().uri(properties.getBaseUrl() + "/audio/transcriptions")
-                .header("Authorization", "Bearer " + properties.getApiKey())
+            response = rest.post().uri(properties.activeBaseUrl() + "/audio/transcriptions")
+                .header("Authorization", "Bearer " + properties.activeApiKey())
                 .contentType(MediaType.MULTIPART_FORM_DATA).body(body.build()).retrieve().body(JsonNode.class);
         } catch (RestClientException exception) {
-            throw new AiUnavailableException("El proveedor de transcripción no está disponible. Revisa AI_API_KEY y vuelve a intentarlo");
+            throw new AiUnavailableException("El proveedor de transcripción no está disponible. Revisa OPENAI_API_KEY y vuelve a intentarlo");
         }
         String text = response == null ? "" : response.path("text").asText().trim();
         if (text.isEmpty() || text.length() > properties.getMaxInstructionLength())

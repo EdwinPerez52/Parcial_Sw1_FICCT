@@ -19,11 +19,11 @@ class AssistantCommandServiceTest {
 
     @Test void invalidProviderResponseCannotCreateAProposalOrModifyTheDiagram() {
         DiagramService diagrams = mock(DiagramService.class); AssistantProposalRepository repository = mock(AssistantProposalRepository.class);
-        AiProperties properties = new AiProperties(); properties.setProvider("fake");
+        AiProperties properties = new AiProperties(); properties.setProvider("openai");
         UUID id = UUID.randomUUID(); DiagramDocument current = empty(id);
         when(diagrams.get(id)).thenReturn(current);
         TextCommandProvider invalid = new TextCommandProvider() {
-            public String id() { return "fake"; }
+            public String id() { return "openai:test"; }
             public DiagramOperationRequest interpret(String instruction, DiagramDocument diagram) {
                 return new DiagramOperationRequest(UUID.randomUUID(), 0L, null, "DROP_TABLE", mapper.createObjectNode());
             }

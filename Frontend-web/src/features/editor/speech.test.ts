@@ -91,6 +91,29 @@ describe('speech input', () => {
     delete (navigator as any).mediaDevices;
   });
 
+  it('falls back to browser recognition when the API gateway returns 502', async () => {
+    const track = { stop: vi.fn() };
+    Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: vi.fn().mockResolvedValue({ getTracks: () => [track] }) } });
+    class FakeRecorder {
+      static isTypeSupported = () => true;
+      state = 'inactive'; ondataavailable: any = null; onstop: any = null;
+      start() { this.state = 'recording'; }
+      stop() { this.state = 'inactive'; this.ondataavailable?.({ data: new Blob(['audio']) }); this.onstop?.(); }
+    }
+    (globalThis as any).MediaRecorder = FakeRecorder;
+    (window as any).SpeechRecognition = FakeRecognition;
+    const statuses: SpeechStatus[] = [];
+    const session = new SpeechSession(value => statuses.push(value), vi.fn(), vi.fn().mockRejectedValue({ status: 502 }));
+
+    await session.start(); session.finish();
+
+    await vi.waitFor(() => expect(statuses.at(-1)?.phase).toBe('recording'));
+    expect(statuses.at(-1)?.message).toContain('Repite la instrucción');
+    session.stop();
+    delete (globalThis as any).MediaRecorder;
+    delete (navigator as any).mediaDevices;
+  });
+
   it('shows error when transcription fails with non-503 status', async () => {
     const track = { stop: vi.fn() };
     Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: vi.fn().mockResolvedValue({ getTracks: () => [track] }) } });

@@ -113,6 +113,23 @@ class OpenAiTextCommandProviderTest {
         deleteFixture.server.verify();
     }
 
+    @Test void removesDomainAssociationsThatReferenceUnknownClassesOrDuplicatePairs() throws Exception {
+        String classA = UUID.randomUUID().toString(); String classB = UUID.randomUUID().toString();
+        var operations = new java.util.ArrayList<com.collabmodeler.api.diagram.DiagramOperationRequest>();
+        operations.add(operation("CLASS_CREATED", mapper.readTree("{\"id\":\"" + classA + "\"}")));
+        operations.add(operation("CLASS_CREATED", mapper.readTree("{\"id\":\"" + classB + "\"}")));
+        operations.add(operation("ASSOCIATION_CREATED", mapper.readTree(associationPayload(classA, classB))));
+        operations.add(operation("ASSOCIATION_CREATED", mapper.readTree(associationPayload(classB, classA))));
+        operations.add(operation("ASSOCIATION_CREATED", mapper.readTree(associationPayload(classA, UUID.randomUUID().toString()))));
+        var provider = new OpenAiTextCommandProvider(properties(), mapper, RestClient.builder());
+        var method = OpenAiTextCommandProvider.class.getDeclaredMethod("removeInvalidDomainAssociations", List.class);
+        method.setAccessible(true);
+
+        method.invoke(provider, operations);
+
+        assertEquals(1, operations.stream().filter(value -> "ASSOCIATION_CREATED".equals(value.type())).count());
+    }
+
     private Fixture fixture(String response) {
         var builder = RestClient.builder();
         var server = MockRestServiceServer.bindTo(builder).build();
@@ -137,6 +154,14 @@ class OpenAiTextCommandProviderTest {
         } catch (Exception exception) {
             throw new RuntimeException(exception);
         }
+    }
+
+    private com.collabmodeler.api.diagram.DiagramOperationRequest operation(String type, com.fasterxml.jackson.databind.JsonNode payload) {
+        return new com.collabmodeler.api.diagram.DiagramOperationRequest(UUID.randomUUID(), 0L, null, type, payload);
+    }
+
+    private String associationPayload(String source, String target) {
+        return "{\"sourceId\":\"" + source + "\",\"targetId\":\"" + target + "\"}";
     }
 
     private DiagramDocument diagram() {
