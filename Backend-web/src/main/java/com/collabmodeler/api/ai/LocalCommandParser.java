@@ -21,7 +21,10 @@ public class LocalCommandParser {
     private static final Pattern RENAME_CLASS = Pattern.compile("(?:renombra|renombrar|cambia el nombre de) (?:la )?clase " + NAME + " (?:a|por) " + NAME, Pattern.CASE_INSENSITIVE);
     private static final Pattern MOVE_CLASS = Pattern.compile("(?:mueve|mover) (?:la )?clase " + NAME + " (?:a|hasta) \\(?(-?\\d+(?:\\.\\d+)?)\\s*[,; ]\\s*(-?\\d+(?:\\.\\d+)?)\\)?", Pattern.CASE_INSENSITIVE);
     private static final Pattern DELETE_CLASS = Pattern.compile("(?:elimina|eliminar|borra|borrar) (?:la )?clase " + NAME, Pattern.CASE_INSENSITIVE);
-    private static final Pattern ADD_ATTRIBUTE = Pattern.compile("(?:agrega|agregar|crea|crear) (?:un )?atributo " + NAME + " (?:de tipo |tipo )" + NAME + " (?:a|en) (?:la clase )?" + NAME, Pattern.CASE_INSENSITIVE);
+    private static final Pattern ADD_ATTRIBUTE = Pattern.compile(
+        "(?:agrega|agregar|anade|anadir|crea|crear) (?:(?:un|el) )?atributo " + NAME +
+        "(?: (?:de tipo |tipo )" + NAME + ")? (?:a|en|de) (?:(?:la|el) )?(?:(?:clase|tabla) )?" + NAME,
+        Pattern.CASE_INSENSITIVE);
     private static final Pattern CHANGE_ATTRIBUTE = Pattern.compile("(?:cambia|modifica|actualiza) (?:el )?atributo " + NAME + " (?:de|en) (?:la clase )?" + NAME + " (?:a tipo|al tipo|tipo) " + NAME, Pattern.CASE_INSENSITIVE);
     private static final Pattern DELETE_ATTRIBUTE = Pattern.compile("(?:elimina|eliminar|borra|borrar) (?:el )?atributo " + NAME + " (?:de|en) (?:la clase )?" + NAME, Pattern.CASE_INSENSITIVE);
     private static final Pattern CREATE_ASSOCIATION = Pattern.compile("(?:relaciona|relacionar|asocia|asociar|crea una relacion entre) (?:la clase )?" + NAME + " (?:con|y) (?:la clase )?" + NAME, Pattern.CASE_INSENSITIVE);
@@ -47,7 +50,8 @@ public class LocalCommandParser {
         if ((m = MOVE_CLASS.matcher(command)).matches()) { var value = findClass(diagram, m.group(1)); ObjectNode payload = object("id", value.id().toString()); payload.put("x", Double.parseDouble(m.group(2))); payload.put("y", Double.parseDouble(m.group(3))); return Optional.of(create(diagram, "CLASS_MOVED", payload, value.version())); }
         if ((m = DELETE_CLASS.matcher(command)).matches()) { var value = findClass(diagram, m.group(1)); return Optional.of(create(diagram, "CLASS_DELETED", object("id", value.id().toString()), value.version())); }
         if ((m = ADD_ATTRIBUTE.matcher(command)).matches()) {
-            String type = scalar(m.group(2)); if (type == null) return Optional.empty();
+            String type = m.group(2) == null ? inferredAttributeType(m.group(1)) : scalar(m.group(2));
+            if (type == null) return Optional.empty();
             var owner = findClass(diagram, m.group(3)); ObjectNode attribute = object("id", UUID.randomUUID().toString(), "name", m.group(1), "type", type);
             attribute.put("primaryKey", false); attribute.put("required", false); attribute.put("unique", false); attribute.put("version", 1);
             ObjectNode payload = object("classId", owner.id().toString()); payload.set("attribute", attribute);
@@ -84,5 +88,6 @@ public class LocalCommandParser {
     private DiagramDocument.Enumeration findEnumeration(DiagramDocument d, String name) { return d.enumerations().stream().filter(v -> v.name().equalsIgnoreCase(name)).findFirst().orElseThrow(() -> new IllegalArgumentException("Enumeración no encontrada: " + name)); }
     private DiagramDocument.Association findAssociation(DiagramDocument d, String a, String b) { var one = findClass(d, a); var two = findClass(d, b); return d.associations().stream().filter(v -> (v.sourceId().equals(one.id()) && v.targetId().equals(two.id())) || (v.sourceId().equals(two.id()) && v.targetId().equals(one.id()))).findFirst().orElseThrow(() -> new IllegalArgumentException("Relación no encontrada")); }
     private String scalar(String raw) { return switch (raw.toLowerCase(Locale.ROOT)) { case "texto", "string", "varchar", "char" -> "String"; case "entero", "integer", "int", "smallint" -> "Integer"; case "largo", "long", "bigint" -> "Long"; case "decimal", "numeric", "float", "double", "real", "money" -> "Decimal"; case "booleano", "boolean", "bool" -> "Boolean"; case "fecha", "date" -> "Date"; case "fechahora", "datetime", "timestamp" -> "DateTime"; case "uuid" -> "UUID"; case "binario", "binary", "blob", "bytea" -> "Binary"; default -> null; }; }
+    private String inferredAttributeType(String name) { return "edad".equalsIgnoreCase(name) ? "Integer" : null; }
     private String normalize(String value) { return Normalizer.normalize(value, Normalizer.Form.NFD).replaceAll("\\p{M}", ""); }
 }

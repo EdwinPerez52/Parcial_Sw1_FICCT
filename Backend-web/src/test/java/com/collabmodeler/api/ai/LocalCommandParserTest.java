@@ -59,6 +59,7 @@ class LocalCommandParserTest {
         assertTrue(parser.parse("diseña un sistema escolar completo", diagram).isEmpty());
         assertTrue(parser.parse("crea una clase A; crea una clase B", diagram).isEmpty());
         assertTrue(parser.parse("agrega atributo correo tipo Email a Persona", diagram).isEmpty());
+        assertTrue(parser.parse("agrega atributo precio en la tabla Persona", diagram).isEmpty());
     }
 
     @Test void normalizesCommonSqlTypesBeforeApplyingLocally() {
@@ -66,5 +67,22 @@ class LocalCommandParserTest {
             .orElseThrow().payload().path("attribute").path("type").asText());
         assertEquals("DateTime", parser.parse("cambia el atributo edad de Persona a tipo timestamp", diagram)
             .orElseThrow().payload().path("attribute").path("type").asText());
+    }
+
+    @Test void addsAgeToTheNamedTableWithoutRequiringAnExplicitType() {
+        UUID customerId = UUID.randomUUID();
+        var customer = new DiagramDocument.ClassElement(customerId, "Cliente", List.of(),
+            new DiagramDocument.Position(60, 70), 4);
+        var current = new DiagramDocument(UUID.randomUUID(), "Ventas", 9,
+            List.of(customer, diagram.classes().getFirst()), List.of(), List.of(), List.of(), List.of());
+
+        var operation = parser.parse("agrega atributo edad en la tabla cliente", current).orElseThrow();
+
+        assertEquals("ATTRIBUTE_CREATED", operation.type());
+        assertEquals(current.revision(), operation.baseRevision());
+        assertEquals(4L, operation.expectedElementVersion());
+        assertEquals(customerId.toString(), operation.payload().path("classId").asText());
+        assertEquals("edad", operation.payload().path("attribute").path("name").asText());
+        assertEquals("Integer", operation.payload().path("attribute").path("type").asText());
     }
 }
