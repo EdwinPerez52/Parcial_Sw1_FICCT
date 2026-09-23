@@ -26,13 +26,15 @@ public class OpenAiTextCommandProvider implements TextCommandProvider {
         ATTRIBUTE_CREATED {classId,attribute:{id,name,type,primaryKey,required,unique,version:1}};
         ATTRIBUTE_UPDATED {classId,attribute:{id,name,type,primaryKey,required,unique,version}};
         ATTRIBUTE_REORDERED {classId,attributeId,newIndex}; ATTRIBUTE_DELETED {classId,id};
-        ASSOCIATION_CREATED o ASSOCIATION_UPDATED {id,sourceId,targetId,sourceCardinality,targetCardinality,name,sourceRole,targetRole,owningSide,version};
+        ASSOCIATION_CREATED o ASSOCIATION_UPDATED {id,sourceId,targetId,sourceCardinality,targetCardinality,name,sourceRole,targetRole,owningSide,relationType,sourceHandle,targetHandle,version};
         ASSOCIATION_DELETED {id};
         ENUMERATION_CREATED o ENUMERATION_UPDATED {id,name,values:[{id,name,version}],position:{x,y},version};
         ENUMERATION_DELETED {id};
         ENUMERATION_VALUE_CREATED o ENUMERATION_VALUE_UPDATED {enumerationId,value:{id,name,version}};
         ENUMERATION_VALUE_DELETED {enumerationId,id};
         GENERALIZATION_CREATED {id,parentId,childId,version:1}; GENERALIZATION_DELETED {id};
+        PACKAGE_CREATED o PACKAGE_UPDATED {id,name,parentId,memberIds,version}; PACKAGE_DELETED {id}.
+        parentId es null para un paquete raíz. memberIds solo contiene UUID de clases, enumeraciones o asociaciones.
         BATCH {operations:[DiagramOperation,...]}. No anides BATCH.
         expectedElementVersion debe ser null al crear y la version actual del elemento al modificar o eliminar.
         Los tipos escalares permitidos son exactamente String, Text, Integer, Long, Decimal, Boolean, Date,
@@ -50,7 +52,8 @@ public class OpenAiTextCommandProvider implements TextCommandProvider {
         "ASSOCIATION_CREATED", "ASSOCIATION_UPDATED", "ASSOCIATION_DELETED",
         "ENUMERATION_CREATED", "ENUMERATION_UPDATED", "ENUMERATION_DELETED",
         "ENUMERATION_VALUE_CREATED", "ENUMERATION_VALUE_UPDATED", "ENUMERATION_VALUE_DELETED",
-        "GENERALIZATION_CREATED", "GENERALIZATION_DELETED", "BATCH"
+        "GENERALIZATION_CREATED", "GENERALIZATION_DELETED",
+        "PACKAGE_CREATED", "PACKAGE_UPDATED", "PACKAGE_DELETED", "BATCH"
     );
     private final AiProperties properties;
     private final ObjectMapper mapper;
@@ -254,7 +257,7 @@ public class OpenAiTextCommandProvider implements TextCommandProvider {
 
     private void registerCreatedIds(DiagramOperationRequest operation, Map<String, String> replacements) {
         JsonNode payload = operation.payload();
-        if (Set.of("CLASS_CREATED", "ASSOCIATION_CREATED", "ENUMERATION_CREATED", "GENERALIZATION_CREATED")
+        if (Set.of("CLASS_CREATED", "ASSOCIATION_CREATED", "ENUMERATION_CREATED", "GENERALIZATION_CREATED", "PACKAGE_CREATED")
             .contains(operation.type())) registerId(payload.path("id"), replacements);
         if ("ATTRIBUTE_CREATED".equals(operation.type())) registerId(payload.path("attribute").path("id"), replacements);
         if ("ENUMERATION_VALUE_CREATED".equals(operation.type())) registerId(payload.path("value").path("id"), replacements);
@@ -347,7 +350,7 @@ public class OpenAiTextCommandProvider implements TextCommandProvider {
     private Set<String> creationTypes() {
         // ATTRIBUTE_CREATED and ENUMERATION_VALUE_CREATED mutate an existing owner and therefore
         // must retain that owner's current version for optimistic concurrency control.
-        return Set.of("CLASS_CREATED", "ASSOCIATION_CREATED", "ENUMERATION_CREATED", "GENERALIZATION_CREATED");
+        return Set.of("CLASS_CREATED", "ASSOCIATION_CREATED", "ENUMERATION_CREATED", "GENERALIZATION_CREATED", "PACKAGE_CREATED");
     }
 
     private String safeDiagram(DiagramDocument value) {
@@ -378,7 +381,7 @@ public class OpenAiTextCommandProvider implements TextCommandProvider {
             case "CLASS_RENAMED" -> objectSchema(Map.of("id", uuidSchema(), "name", textSchema()));
             case "CLASS_MOVED" -> objectSchema(Map.of(
                 "id", uuidSchema(), "x", Map.of("type", "number"), "y", Map.of("type", "number")));
-            case "CLASS_DELETED", "ASSOCIATION_DELETED", "ENUMERATION_DELETED", "GENERALIZATION_DELETED" ->
+            case "CLASS_DELETED", "ASSOCIATION_DELETED", "ENUMERATION_DELETED", "GENERALIZATION_DELETED", "PACKAGE_DELETED" ->
                 objectSchema(Map.of("id", uuidSchema()));
             case "ATTRIBUTE_CREATED", "ATTRIBUTE_UPDATED" ->
                 objectSchema(Map.of("classId", uuidSchema(), "attribute", attribute));
@@ -386,12 +389,15 @@ public class OpenAiTextCommandProvider implements TextCommandProvider {
                 "classId", uuidSchema(), "attributeId", uuidSchema(),
                 "newIndex", Map.of("type", "integer", "minimum", 0)));
             case "ATTRIBUTE_DELETED" -> objectSchema(Map.of("classId", uuidSchema(), "id", uuidSchema()));
-            case "ASSOCIATION_CREATED", "ASSOCIATION_UPDATED" -> objectSchema(Map.of(
-                "id", uuidSchema(), "sourceId", uuidSchema(), "targetId", uuidSchema(),
-                "sourceCardinality", cardinalitySchema(), "targetCardinality", cardinalitySchema(),
-                "name", nullableTextSchema(), "sourceRole", nullableTextSchema(), "targetRole", nullableTextSchema(),
-                "owningSide", Map.of("type", "string", "enum", List.of("SOURCE", "TARGET")),
-                "version", positiveIntegerSchema()));
+            case "ASSOCIATION_CREATED", "ASSOCIATION_UPDATED" -> objectSchema(Map.ofEntries(
+                Map.entry("id", uuidSchema()), Map.entry("sourceId", uuidSchema()), Map.entry("targetId", uuidSchema()),
+                Map.entry("sourceCardinality", cardinalitySchema()), Map.entry("targetCardinality", cardinalitySchema()),
+                Map.entry("name", nullableTextSchema()), Map.entry("sourceRole", nullableTextSchema()),
+                Map.entry("targetRole", nullableTextSchema()),
+                Map.entry("owningSide", Map.of("type", "string", "enum", List.of("SOURCE", "TARGET"))),
+                Map.entry("relationType", Map.of("type", "string", "enum", List.of("ASSOCIATION", "DEPENDENCY", "AGGREGATION", "COMPOSITION"))),
+                Map.entry("sourceHandle", nullableConnectionPointSchema()),
+                Map.entry("targetHandle", nullableConnectionPointSchema()), Map.entry("version", positiveIntegerSchema())));
             case "ENUMERATION_CREATED", "ENUMERATION_UPDATED" -> objectSchema(Map.of(
                 "id", uuidSchema(), "name", textSchema(), "values", arraySchema(enumValue),
                 "position", position, "version", positiveIntegerSchema()));
@@ -402,6 +408,9 @@ public class OpenAiTextCommandProvider implements TextCommandProvider {
             case "GENERALIZATION_CREATED" -> objectSchema(Map.of(
                 "id", uuidSchema(), "parentId", uuidSchema(), "childId", uuidSchema(),
                 "version", positiveIntegerSchema()));
+            case "PACKAGE_CREATED", "PACKAGE_UPDATED" -> objectSchema(Map.of(
+                "id", uuidSchema(), "name", textSchema(), "parentId", nullableUuidSchema(),
+                "memberIds", arraySchema(uuidSchema()), "version", positiveIntegerSchema()));
             default -> throw new IllegalArgumentException("Tipo no soportado por el proveedor: " + type);
         };
     }
@@ -420,8 +429,14 @@ public class OpenAiTextCommandProvider implements TextCommandProvider {
     }
 
     private Map<String, Object> uuidSchema() { return Map.of("type", "string", "format", "uuid"); }
+    private Map<String, Object> nullableUuidSchema() { return Map.of("type", List.of("string", "null"), "format", "uuid"); }
     private Map<String, Object> textSchema() { return Map.of("type", "string", "minLength", 1); }
     private Map<String, Object> nullableTextSchema() { return Map.of("type", List.of("string", "null")); }
+    private Map<String, Object> nullableConnectionPointSchema() {
+        return Map.of("type", List.of("string", "null"), "enum", java.util.Arrays.asList(
+            "top-25", "top-50", "top-75", "right-25", "right-50", "right-75",
+            "bottom-25", "bottom-50", "bottom-75", "left-25", "left-50", "left-75", null));
+    }
     private Map<String, Object> cardinalitySchema() {
         return Map.of("type", "string", "enum", List.of("0..1", "1", "0..*", "1..*"));
     }

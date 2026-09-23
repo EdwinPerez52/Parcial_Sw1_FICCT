@@ -74,6 +74,45 @@ class OpenAiTextCommandProviderTest {
         server.verify();
     }
 
+    @Test void supportsPackageCrudOperations() {
+        UUID packageId = UUID.randomUUID();
+        String createArguments = """
+            {"expectedElementVersion":null,"payload":{"id":"%s","name":"Ventas","parentId":null,"memberIds":["%s"],"version":1}}
+            """.formatted(packageId, classId).trim();
+        var createFixture = fixture(toolResponse("PACKAGE_CREATED", createArguments));
+
+        var creation = createFixture.provider.interpret("crea el paquete Ventas y agrega Cliente", diagram());
+
+        assertEquals("PACKAGE_CREATED", creation.type());
+        assertNull(creation.expectedElementVersion());
+        assertNotEquals(packageId.toString(), creation.payload().path("id").asText());
+        assertEquals(classId.toString(), creation.payload().path("memberIds").path(0).asText());
+        createFixture.server.verify();
+
+        String updateArguments = """
+            {"expectedElementVersion":2,"payload":{"id":"%s","name":"Comercial","parentId":null,"memberIds":["%s"],"version":2}}
+            """.formatted(packageId, classId).trim();
+        var updateFixture = fixture(toolResponse("PACKAGE_UPDATED", updateArguments));
+
+        var update = updateFixture.provider.interpret("renombra el paquete Ventas a Comercial", diagram());
+
+        assertEquals("PACKAGE_UPDATED", update.type());
+        assertEquals(2L, update.expectedElementVersion());
+        assertEquals(packageId.toString(), update.payload().path("id").asText());
+        updateFixture.server.verify();
+
+        String deleteArguments = """
+            {"expectedElementVersion":2,"payload":{"id":"%s"}}
+            """.formatted(packageId).trim();
+        var deleteFixture = fixture(toolResponse("PACKAGE_DELETED", deleteArguments));
+
+        var deletion = deleteFixture.provider.interpret("elimina el paquete Comercial", diagram());
+
+        assertEquals("PACKAGE_DELETED", deletion.type());
+        assertEquals(2L, deletion.expectedElementVersion());
+        deleteFixture.server.verify();
+    }
+
     private Fixture fixture(String response) {
         var builder = RestClient.builder();
         var server = MockRestServiceServer.bindTo(builder).build();
