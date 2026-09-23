@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xmi:XMI xmi:version="2.1" xmlns:xmi="http://schema.omg.org/spec/XMI/2.1" xmlns:uml="http://schema.omg.org/spec/UML/2.1">
+  <uml:Model xmi:type="uml:Model" xmi:id="sales" name="Ventas">
+    <packagedElement xmi:type="uml:Package" xmi:id="sales-domain" name="DominioVentas">
+      <packagedElement xmi:type="uml:PrimitiveType" xmi:id="uuid" name="UUID"/>
+      <packagedElement xmi:type="uml:Enumeration" xmi:id="order-status" name="EstadoPedido">
+        <ownedLiteral xmi:type="uml:EnumerationLiteral" xmi:id="new" name="NUEVO"/>
+        <ownedLiteral xmi:type="uml:EnumerationLiteral" xmi:id="paid" name="PAGADO"/>
+      </packagedElement>
+      <packagedElement xmi:type="uml:Class" xmi:id="customer" name="Cliente">
+        <ownedAttribute xmi:type="uml:Property" xmi:id="customer-id" name="id" type="uuid" isID="true" isUnique="true"><lowerValue value="1"/><upperValue value="1"/></ownedAttribute>
+      </packagedElement>
+      <packagedElement xmi:type="uml:Class" xmi:id="order" name="Pedido">
+        <ownedAttribute xmi:type="uml:Property" xmi:id="order-status-property" name="estado" type="order-status"><lowerValue value="1"/><upperValue value="1"/></ownedAttribute>
+        <generalization xmi:type="uml:Generalization" xmi:id="order-inherits-customer" general="customer"/>
+      </packagedElement>
+      <packagedElement xmi:type="uml:Association" xmi:id="customer-orders" name="realiza" memberEnd="customer-end order-end" navigableOwnedEnd="order-end">
+        <ownedEnd xmi:type="uml:Property" xmi:id="customer-end" name="cliente" type="customer"><lowerValue value="1"/><upperValue value="1"/></ownedEnd>
+        <ownedEnd xmi:type="uml:Property" xmi:id="order-end" name="pedidos" type="order"><lowerValue value="0"/><upperValue value="*"/></ownedEnd>
+      </packagedElement>
+    </packagedElement>
+  </uml:Model>
+</xmi:XMI>

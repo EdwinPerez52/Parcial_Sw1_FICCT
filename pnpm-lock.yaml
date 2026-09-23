@@ -8,7 +8,7 @@ importers:
 
   .: {}
 
-  frontend_parcial:
+  Frontend-web:
     dependencies:
       '@stomp/stompjs':
         specifier: ^7.2.1

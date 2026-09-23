@@ -1,0 +1,25 @@
+spring:
+  mail:
+    host: ${SES_SMTP_HOST}
+    port: ${SES_SMTP_PORT:587}
+    username: ${SES_SMTP_USERNAME}
+    password: ${SES_SMTP_PASSWORD}
+    properties.mail.smtp:
+      auth: true
+      starttls.enable: true
+server:
+  servlet:
+    session:
+      cookie:
+        secure: true
+app:
+  mobile-spec:
+    secret: ${MOBILE_SPEC_SECRET}
+  collaboration:
+    allowed-origins: ${WEBSOCKET_ALLOWED_ORIGINS}
+  generation:
+    s3-bucket: ${GENERATION_S3_BUCKET}
+    sqs-queue-url: ${GENERATION_SQS_QUEUE_URL}
+    encryption-key: ${GENERATION_ENCRYPTION_KEY}
+    download-secret: ${GENERATION_DOWNLOAD_SECRET}
+    worker-enabled: ${GENERATION_WORKER_ENABLED:false}

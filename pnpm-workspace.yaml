@@ -1,5 +1,5 @@
 packages:
-  - frontend_parcial
+  - Frontend-web
 
 onlyBuiltDependencies:
   - esbuild
