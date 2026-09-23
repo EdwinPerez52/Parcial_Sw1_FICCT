@@ -47,6 +47,8 @@ pnpm dev:web
 
 `dev:api` carga las variables locales de `.env` sin imprimirlas y activa el perfil Spring `dev` mediante `SPRING_PROFILES_ACTIVE`, evitando problemas de interpretación de argumentos `-D` en PowerShell.
 
+El backend también importa el `.env` automáticamente al arrancar desde Maven o el IDE, con directorio de trabajo en la raíz del repositorio o en `Backend-web`. Usa valores sin comillas en ese archivo (`AI_API_KEY=...`); las variables del proceso tienen prioridad. Los perfiles `prod` y `test` no importan el archivo local. Reinicia el backend después de cambiar `.env`.
+
 Detén los contenedores sin borrar el volumen de PostgreSQL con `pnpm stop`.
 
 ## Pruebas y compilación

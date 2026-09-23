@@ -67,3 +67,14 @@ app:
     download-secret: ${GENERATION_DOWNLOAD_SECRET:local-download-secret-change-me}
     download-url-minutes: ${GENERATION_DOWNLOAD_URL_MINUTES:5}
     retention-hours: ${GENERATION_RETENTION_HOURS:168}
+
+---
+# Local launches from the repository root, Maven or the IDE share the same .env.
+# Real environment variables still take precedence; never import local secrets in production/tests.
+spring:
+  config:
+    activate:
+      on-profile: "!prod & !test"
+    import:
+      - optional:file:../.env[.properties]
+      - optional:file:./.env[.properties]

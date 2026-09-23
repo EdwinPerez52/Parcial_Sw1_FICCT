@@ -18,6 +18,7 @@ describe('speech input', () => {
     const statuses: SpeechStatus[] = []; const submit = vi.fn();
     const session = new SpeechSession(value => statuses.push(value), submit, vi.fn());
     await session.start();
+    expect(instance!.lang).toBe('es-ES');
     instance!.onresult!({ results: { 0: { 0: { transcript: 'crea una clase Producto' } } } });
     expect(submit).toHaveBeenCalledExactlyOnceWith('crea una clase Producto');
     expect(statuses.map(value => value.phase)).toContain('recording');
@@ -84,6 +85,7 @@ describe('speech input', () => {
     await vi.waitFor(() => expect(statuses.some(s => s.message?.includes('navegador'))).toBe(true));
     // Browser recognition sets phase to 'recording' with 'Escuchando…'
     expect(statuses.at(-1)?.phase).toBe('recording');
+    expect(statuses.at(-1)?.message).toContain('Repite la instrucción');
 
     delete (globalThis as any).MediaRecorder;
     delete (navigator as any).mediaDevices;

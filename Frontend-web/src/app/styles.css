@@ -10,7 +10,7 @@ body { margin: 0; min-width: 320px; min-height: 100vh; }
 button, input, select, textarea { font: inherit; }
 button { cursor: pointer; }
 
-.app-shell { display: grid; grid-template: 64px 1fr / 96px 1fr 390px; height: 100vh; min-width: 1024px; }
+.app-shell { display: grid; grid-template: 64px minmax(0, 1fr) / 96px 1fr 390px; height: 100vh; height: 100dvh; min-width: 1024px; }
 .topbar { grid-column: 1 / -1; display: flex; align-items: center; gap: 28px; padding: 0 20px; background: #fff; border-bottom: 1px solid #e4e7ed; z-index: 4; }
 .brand { display: flex; align-items: center; gap: 10px; min-width: 250px; }
 .brand-button { border: 0; background: transparent; padding: 0; text-align: left; color: inherit; }
@@ -41,12 +41,12 @@ button { cursor: pointer; }
 .panel-tabs button.active { color: #4338ca; background: white; box-shadow: inset 0 -2px #4f46e5; font-weight: 700; }
 .panel-title { height: 66px; display: flex; align-items: center; gap: 10px; padding: 0 18px; border-bottom: 1px solid #e8ebf0; }
 .panel-title > svg { color: #4f46e5; }
-.assistant-body { flex: 1; padding: 18px; overflow: auto; background: #fafbfe; }
+.assistant-body { flex: 1; min-height: 0; padding: 18px; overflow: auto; background: #fafbfe; }
 .assistant-bubble { padding: 13px 14px; background: #eef2ff; color: #3730a3; border-radius: 12px 12px 12px 3px; line-height: 1.45; font-size: 14px; }
 .suggestions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
 .suggestions button { border: 1px solid #dfe3ed; background: white; color: #505b70; border-radius: 16px; padding: 6px 9px; font-size: 12px; }
 .assistant-image-action { display: inline-flex; align-items: center; gap: 7px; margin-top: 18px; padding: 9px 11px; border: 1px solid #c7d2fe; border-radius: 8px; background: #eef2ff; color: #3730a3; font-weight: 700; }
-.command-box { display: flex; gap: 6px; padding: 12px; border-top: 1px solid #e8ebf0; }
+.command-box { display: flex; flex-shrink: 0; gap: 6px; padding: 12px; border-top: 1px solid #e8ebf0; }
 .command-box input { min-width: 0; flex: 1; border: 1px solid #d9dee9; border-radius: 8px; padding: 9px 10px; outline: none; }
 .command-box input:focus { border-color: #6366f1; box-shadow: 0 0 0 3px #e0e7ff; }
 .command-box button { display: inline-flex; align-items: center; justify-content: center; gap: 4px; padding: 8px; background: #eef2ff; color: #4338ca; }

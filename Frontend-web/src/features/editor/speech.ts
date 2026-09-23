@@ -53,10 +53,11 @@ export class SpeechSession {
             if (!text.trim()) { this.fail('No se detectó una instrucción. Reintenta.'); return; }
             this.completed = true; this.transcript(text.trim());
           }).catch(cause => {
+            if (this.completed) return;
             const browser = window as Window & { SpeechRecognition?: RecognitionConstructor; webkitSpeechRecognition?: RecognitionConstructor };
             if (!this.completed && (cause as { status?: number }).status === 503 && (browser.SpeechRecognition || browser.webkitSpeechRecognition)) {
               this.status({ phase: 'permission', message: 'La transcripción del servidor no está disponible; repite la instrucción en el navegador…' });
-              this.startBrowserRecognition();
+              this.startBrowserRecognition(true);
             } else this.fail(cause instanceof Error ? cause.message : 'No se pudo transcribir el audio.');
           });
         };
@@ -87,13 +88,13 @@ export class SpeechSession {
     this.releaseStream();
   }
 
-  private startBrowserRecognition(): void {
+  private startBrowserRecognition(repeatInstruction = false): void {
     const browserWindow = window as Window & { SpeechRecognition?: RecognitionConstructor; webkitSpeechRecognition?: RecognitionConstructor };
     const Constructor = browserWindow.SpeechRecognition ?? browserWindow.webkitSpeechRecognition;
     if (!Constructor) { this.fail('No hay grabación ni reconocimiento de voz disponible en este navegador.'); return; }
     try {
       const recognition = new Constructor(); this.recognition = recognition;
-      recognition.lang = navigator.language || 'es-ES'; recognition.interimResults = false; recognition.continuous = false;
+      recognition.lang = 'es-ES'; recognition.interimResults = false; recognition.continuous = false;
       let lastTranscript = '';
       recognition.onresult = event => {
         const value = event.results?.[0]?.[0]?.transcript?.trim();
@@ -111,7 +112,8 @@ export class SpeechSession {
       recognition.onend = () => {
         if (!this.completed && !lastTranscript) this.fail('No se recibió ninguna transcripción. Reintenta.');
       };
-      recognition.start(); this.status({ phase: 'recording', message: 'Escuchando…' });
+      recognition.start(); this.status({ phase: 'recording', message: repeatInstruction
+        ? 'Repite la instrucción: escuchando con el reconocimiento del navegador…' : 'Escuchando…' });
     } catch (cause) { this.fail(cause instanceof Error ? cause.message : 'No se pudo iniciar el reconocimiento.'); }
   }
 

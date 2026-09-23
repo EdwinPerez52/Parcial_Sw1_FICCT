@@ -402,6 +402,7 @@ export default function App({ projectId, userName, role, onBack, onLogout }: { p
 
   const inspectImage = async (file?: File) => {
     if (!file || !diagramId) return;
+    setPanel('assistant');
     if (file.size > 10_000_000) { setAssistantMessage('La fotografía supera el límite de 10 MB.'); return; }
     setAnalyzingImage(true);
     setAssistantMessage('Optimizando y analizando fotografía con IA…');
@@ -488,7 +489,8 @@ export default function App({ projectId, userName, role, onBack, onLogout }: { p
       const result = await assistantApi.apply(diagramId, proposal.proposalId, confirmed);
       acceptAssistant(result.operation, result.diagram, before); setAssistantProposal(undefined);
       setAssistantMessage(`Cambio aplicado mediante ${result.provider}. Puedes deshacerlo.`);
-    } catch (cause) { setAssistantMessage(cause instanceof Error ? cause.message : 'No se pudo aplicar la propuesta.'); }
+      return true;
+    } catch (cause) { setAssistantMessage(cause instanceof Error ? cause.message : 'No se pudo aplicar la propuesta.'); return false; }
     finally { setAssistantBusy(false); }
   };
 
@@ -498,13 +500,13 @@ export default function App({ projectId, userName, role, onBack, onLogout }: { p
       setAssistantMessage('Espera a que terminen de sincronizarse los cambios pendientes.'); return;
     }
     setAssistantBusy(true);
+    setAssistantMessage('Interpretando la instrucción…');
     try {
       const proposal = await assistantApi.interpret(diagramId, instruction.trim());
-      if (proposal.requiresConfirmation) { setAssistantProposal(proposal); setAssistantMessage('Revisa la previsualización antes de confirmar.'); }
-      else await applyAssistantProposal(proposal, false);
+      if (proposal.requiresConfirmation) { setAssistantProposal(proposal); setAssistantMessage('Revisa la previsualización antes de confirmar.'); setCommand(''); }
+      else if (await applyAssistantProposal(proposal, false)) setCommand('');
     } catch (cause) { setAssistantMessage(cause instanceof Error ? cause.message : 'Operación inválida.'); }
     finally { setAssistantBusy(false); }
-    setCommand('');
   };
 
   const executeCommand = (event: FormEvent) => { event.preventDefault(); void submitInstruction(command); };
