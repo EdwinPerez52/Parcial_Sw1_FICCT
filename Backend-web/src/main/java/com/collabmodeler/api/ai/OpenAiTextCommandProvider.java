@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientResponseException;
 
 import java.util.List;
 import java.util.ArrayList;
@@ -99,6 +100,15 @@ public class OpenAiTextCommandProvider implements TextCommandProvider {
                     requireUsefulDomain(operations);
                 }
                 return asOperationOrBatch(operations, diagram);
+            } catch (RestClientResponseException exception) {
+                int status = exception.getStatusCode().value();
+                if (status == 401 || status == 403) {
+                    throw new AiUnavailableException("OpenAI rechazó la credencial. Revisa AI_API_KEY y los permisos del proyecto.");
+                }
+                if (status == 429) {
+                    throw new AiUnavailableException("OpenAI rechazó la solicitud por límite o crédito insuficiente. Revisa la facturación y vuelve a intentarlo.");
+                }
+                lastFailure = exception;
             } catch (Exception exception) {
                 lastFailure = exception;
             }
@@ -335,8 +345,9 @@ public class OpenAiTextCommandProvider implements TextCommandProvider {
     }
 
     private Set<String> creationTypes() {
-        return Set.of("CLASS_CREATED", "ATTRIBUTE_CREATED", "ASSOCIATION_CREATED", "ENUMERATION_CREATED",
-            "ENUMERATION_VALUE_CREATED", "GENERALIZATION_CREATED");
+        // ATTRIBUTE_CREATED and ENUMERATION_VALUE_CREATED mutate an existing owner and therefore
+        // must retain that owner's current version for optimistic concurrency control.
+        return Set.of("CLASS_CREATED", "ASSOCIATION_CREATED", "ENUMERATION_CREATED", "GENERALIZATION_CREATED");
     }
 
     private String safeDiagram(DiagramDocument value) {
@@ -346,8 +357,6 @@ public class OpenAiTextCommandProvider implements TextCommandProvider {
 
     private Map<String, Object> operationArgumentsSchema(String type) {
         return objectSchema(Map.of(
-            "operationId", uuidSchema(),
-            "baseRevision", Map.of("type", "integer", "minimum", 0),
             "expectedElementVersion", Map.of("type", List.of("integer", "null"), "minimum", 1),
             "payload", payloadSchema(type)
         ));

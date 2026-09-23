@@ -7,6 +7,7 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 import static org.junit.jupiter.api.Assertions.*;
+import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.*;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.*;
 
@@ -20,6 +21,8 @@ class AiServiceTest {
         server.expect(requestTo("https://example.test/v1/chat/completions"))
             .andExpect(method(HttpMethod.POST))
             .andExpect(header("Authorization", "Bearer test-key"))
+            .andExpect(content().string(containsString("json_schema")))
+            .andExpect(content().string(containsString("\"detail\":\"high\"")))
             .andRespond(withSuccess(chatResponse, MediaType.APPLICATION_JSON));
         byte[] pngBytes = new byte[24];
         byte[] header = {(byte) 0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a};

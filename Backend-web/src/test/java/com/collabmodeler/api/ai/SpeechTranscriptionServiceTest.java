@@ -19,6 +19,8 @@ class SpeechTranscriptionServiceTest {
                 String body = new String(((org.springframework.mock.http.client.MockClientHttpRequest) request).getBodyAsBytes(), java.nio.charset.StandardCharsets.ISO_8859_1);
                 assertTrue(body.contains("name=\"model\""));
                 assertTrue(body.contains("gpt-4o-mini-transcribe"));
+                assertTrue(body.contains("name=\"language\""));
+                assertTrue(body.contains("name=\"prompt\""));
                 assertTrue(body.contains("filename=\"voz.webm\""));
             })
             .andRespond(withSuccess("{\"text\":\"crea una clase Producto\"}", MediaType.APPLICATION_JSON));

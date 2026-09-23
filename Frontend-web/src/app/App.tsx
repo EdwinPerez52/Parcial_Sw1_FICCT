@@ -512,11 +512,10 @@ export default function App({ projectId, userName, role, onBack, onLogout }: { p
   const startSpeech = () => {
     if (speechStatus.phase === 'recording') { speechSession.current?.finish(); return; }
     speechSession.current?.stop();
-    const hasBrowserSpeech = typeof window !== 'undefined' && ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window);
     speechSession.current = new SpeechSession(setSpeechStatus, value => {
       setCommand(value);
       void submitInstruction(value).finally(() => setSpeechStatus({ phase: 'idle' }));
-    }, audio => diagramId ? assistantApi.transcribe(diagramId, audio) : Promise.reject(new Error('El diagrama no está disponible.')), hasBrowserSpeech);
+    }, audio => diagramId ? assistantApi.transcribe(diagramId, audio) : Promise.reject(new Error('El diagrama no está disponible.')));
     void speechSession.current.start();
   };
 

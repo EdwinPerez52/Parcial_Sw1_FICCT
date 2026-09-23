@@ -58,5 +58,13 @@ class LocalCommandParserTest {
     @Test void delegatesUnknownOrCompoundInstructions() {
         assertTrue(parser.parse("diseña un sistema escolar completo", diagram).isEmpty());
         assertTrue(parser.parse("crea una clase A; crea una clase B", diagram).isEmpty());
+        assertTrue(parser.parse("agrega atributo correo tipo Email a Persona", diagram).isEmpty());
+    }
+
+    @Test void normalizesCommonSqlTypesBeforeApplyingLocally() {
+        assertEquals("String", parser.parse("agrega atributo nombre tipo varchar a Persona", diagram)
+            .orElseThrow().payload().path("attribute").path("type").asText());
+        assertEquals("DateTime", parser.parse("cambia el atributo edad de Persona a tipo timestamp", diagram)
+            .orElseThrow().payload().path("attribute").path("type").asText());
     }
 }

@@ -32,7 +32,10 @@ final class ImageProposalValidator {
                 || !names.contains(link.path("target").asText().toLowerCase(java.util.Locale.ROOT))
                 || !CARDINALITIES.contains(link.path("sourceCardinality").asText())
                 || !CARDINALITIES.contains(link.path("targetCardinality").asText())
-                || (link.hasNonNull("name") && !link.path("name").isTextual())) throw invalid();
+                || (link.hasNonNull("name") && !link.path("name").isTextual())
+                || (link.hasNonNull("sourceRole") && !link.path("sourceRole").isTextual())
+                || (link.hasNonNull("targetRole") && !link.path("targetRole").isTextual())
+                || !Set.of("SOURCE", "TARGET").contains(link.path("owningSide").asText())) throw invalid();
         }
         for (JsonNode warning : proposal.path("warnings")) if (!warning.isTextual() || warning.asText().length() > 500) throw invalid();
         return proposal;

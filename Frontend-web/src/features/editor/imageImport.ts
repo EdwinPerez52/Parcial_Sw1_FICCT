@@ -28,7 +28,8 @@ export function buildImageImport(current: DiagramModel, proposal: ImageProposal)
     if (!sourceId || !targetId || !cardinalities.includes(link.sourceCardinality) || !cardinalities.includes(link.targetCardinality))
       throw new Error(`Relación inválida: ${link.source} → ${link.target}`);
     return { id: createId(), sourceId, targetId, sourceCardinality: link.sourceCardinality,
-      targetCardinality: link.targetCardinality, name: link.name?.trim(), sourceRole: '', targetRole: '', owningSide: 'SOURCE' as const, version: 1 };
+      targetCardinality: link.targetCardinality, name: link.name?.trim() || undefined, sourceRole: link.sourceRole?.trim() ?? '',
+      targetRole: link.targetRole?.trim() ?? '', owningSide: link.owningSide ?? 'SOURCE' as const, version: 1 };
   });
   return { ...current, classes: [...current.classes, ...classes], associations: [...current.associations, ...associations] };
 }

@@ -83,13 +83,40 @@ class OpenAiTextCommandProviderLiveTest {
 
         DiagramRepository diagrams = mock(DiagramRepository.class);
         DiagramOperationRepository history = mock(DiagramOperationRepository.class);
-        when(diagrams.findById(current.id())).thenReturn(Optional.of(new DiagramEntity(
-            current.id(), current.name(), mapper.writeValueAsString(current), "live-test")));
+        DiagramEntity entity = new DiagramEntity(
+            current.id(), current.name(), mapper.writeValueAsString(current), "live-test");
+        entity.updateModel(current.revision(), mapper.writeValueAsString(current));
+        when(diagrams.findById(current.id())).thenReturn(Optional.of(entity));
         DiagramDocument preview = new DiagramService(diagrams, history, mapper, mock(AccessService.class))
             .preview(current.id(), batch);
         assertThat(preview.revision()).isEqualTo(1);
         assertThat(preview.classes()).hasSize(classes.size());
         assertThat(preview.associations()).hasSize(associations.size());
+    }
+
+    @Test
+    void editsAndDeletesExistingElementsWithApplicableVersions() throws Exception {
+        UUID classId = UUID.randomUUID();
+        UUID attributeId = UUID.randomUUID();
+        DiagramDocument current = new DiagramDocument(UUID.randomUUID(), "Clientes", 5, List.of(
+            new DiagramDocument.ClassElement(classId, "Cliente", List.of(
+                new DiagramDocument.Attribute(attributeId, "correo", "String", false, false, false, 2)
+            ), new DiagramDocument.Position(20, 30), 3)
+        ), List.of(), List.of(), List.of(), List.of());
+
+        DiagramOperationRequest update = provider().interpret(
+            "Renombra el atributo correo de Cliente a email, mantenlo String y hazlo obligatorio y único", current);
+        assertThat(update.type()).isEqualTo("ATTRIBUTE_UPDATED");
+        assertThat(update.expectedElementVersion()).isEqualTo(2);
+        assertThat(update.payload().path("attribute").path("id").asText()).isEqualTo(attributeId.toString());
+        assertThat(update.payload().path("attribute").path("name").asText()).isEqualTo("email");
+        assertThat(preview(current, update).classes().getFirst().attributes().getFirst().name()).isEqualTo("email");
+
+        DiagramOperationRequest deletion = provider().interpret(
+            "Elimina el atributo correo de la clase Cliente", current);
+        assertThat(deletion.type()).isEqualTo("ATTRIBUTE_DELETED");
+        assertThat(deletion.expectedElementVersion()).isEqualTo(2);
+        assertThat(preview(current, deletion).classes().getFirst().attributes()).isEmpty();
     }
 
     private OpenAiTextCommandProvider provider() {
@@ -104,6 +131,17 @@ class OpenAiTextCommandProviderLiveTest {
     private DiagramDocument emptyDiagram() {
         return new DiagramDocument(
             UUID.randomUUID(), "Prueba en vivo", 0, List.of(), List.of(), List.of(), List.of(), List.of());
+    }
+
+    private DiagramDocument preview(DiagramDocument current, DiagramOperationRequest operation) throws Exception {
+        DiagramRepository diagrams = mock(DiagramRepository.class);
+        DiagramOperationRepository history = mock(DiagramOperationRepository.class);
+        DiagramEntity entity = new DiagramEntity(
+            current.id(), current.name(), mapper.writeValueAsString(current), "live-test");
+        entity.updateModel(current.revision(), mapper.writeValueAsString(current));
+        when(diagrams.findById(current.id())).thenReturn(Optional.of(entity));
+        return new DiagramService(diagrams, history, mapper, mock(AccessService.class))
+            .preview(current.id(), operation);
     }
 
     private String required(String name) {

@@ -47,13 +47,15 @@ public class LocalCommandParser {
         if ((m = MOVE_CLASS.matcher(command)).matches()) { var value = findClass(diagram, m.group(1)); ObjectNode payload = object("id", value.id().toString()); payload.put("x", Double.parseDouble(m.group(2))); payload.put("y", Double.parseDouble(m.group(3))); return Optional.of(create(diagram, "CLASS_MOVED", payload, value.version())); }
         if ((m = DELETE_CLASS.matcher(command)).matches()) { var value = findClass(diagram, m.group(1)); return Optional.of(create(diagram, "CLASS_DELETED", object("id", value.id().toString()), value.version())); }
         if ((m = ADD_ATTRIBUTE.matcher(command)).matches()) {
-            var owner = findClass(diagram, m.group(3)); ObjectNode attribute = object("id", UUID.randomUUID().toString(), "name", m.group(1), "type", scalar(m.group(2)));
+            String type = scalar(m.group(2)); if (type == null) return Optional.empty();
+            var owner = findClass(diagram, m.group(3)); ObjectNode attribute = object("id", UUID.randomUUID().toString(), "name", m.group(1), "type", type);
             attribute.put("primaryKey", false); attribute.put("required", false); attribute.put("unique", false); attribute.put("version", 1);
             ObjectNode payload = object("classId", owner.id().toString()); payload.set("attribute", attribute);
             return Optional.of(create(diagram, "ATTRIBUTE_CREATED", payload, owner.version()));
         }
         if ((m = CHANGE_ATTRIBUTE.matcher(command)).matches()) {
-            var owner = findClass(diagram, m.group(2)); var attribute = findAttribute(owner, m.group(1)); ObjectNode updated = mapper.valueToTree(attribute); updated.put("type", scalar(m.group(3)));
+            String type = scalar(m.group(3)); if (type == null) return Optional.empty();
+            var owner = findClass(diagram, m.group(2)); var attribute = findAttribute(owner, m.group(1)); ObjectNode updated = mapper.valueToTree(attribute); updated.put("type", type);
             ObjectNode payload = object("classId", owner.id().toString()); payload.set("attribute", updated);
             return Optional.of(create(diagram, "ATTRIBUTE_UPDATED", payload, attribute.version()));
         }
@@ -81,6 +83,6 @@ public class LocalCommandParser {
     private DiagramDocument.Attribute findAttribute(DiagramDocument.ClassElement c, String name) { return c.attributes().stream().filter(v -> v.name().equalsIgnoreCase(name)).findFirst().orElseThrow(() -> new IllegalArgumentException("Atributo no encontrado: " + name)); }
     private DiagramDocument.Enumeration findEnumeration(DiagramDocument d, String name) { return d.enumerations().stream().filter(v -> v.name().equalsIgnoreCase(name)).findFirst().orElseThrow(() -> new IllegalArgumentException("Enumeración no encontrada: " + name)); }
     private DiagramDocument.Association findAssociation(DiagramDocument d, String a, String b) { var one = findClass(d, a); var two = findClass(d, b); return d.associations().stream().filter(v -> (v.sourceId().equals(one.id()) && v.targetId().equals(two.id())) || (v.sourceId().equals(two.id()) && v.targetId().equals(one.id()))).findFirst().orElseThrow(() -> new IllegalArgumentException("Relación no encontrada")); }
-    private String scalar(String raw) { return switch (raw.toLowerCase(Locale.ROOT)) { case "texto", "string" -> "String"; case "entero", "integer" -> "Integer"; case "largo", "long" -> "Long"; case "decimal" -> "Decimal"; case "booleano", "boolean" -> "Boolean"; case "fecha", "date" -> "Date"; case "fechahora", "datetime" -> "DateTime"; case "uuid" -> "UUID"; case "binario", "binary" -> "Binary"; default -> raw; }; }
+    private String scalar(String raw) { return switch (raw.toLowerCase(Locale.ROOT)) { case "texto", "string", "varchar", "char" -> "String"; case "entero", "integer", "int", "smallint" -> "Integer"; case "largo", "long", "bigint" -> "Long"; case "decimal", "numeric", "float", "double", "real", "money" -> "Decimal"; case "booleano", "boolean", "bool" -> "Boolean"; case "fecha", "date" -> "Date"; case "fechahora", "datetime", "timestamp" -> "DateTime"; case "uuid" -> "UUID"; case "binario", "binary", "blob", "bytea" -> "Binary"; default -> null; }; }
     private String normalize(String value) { return Normalizer.normalize(value, Normalizer.Form.NFD).replaceAll("\\p{M}", ""); }
 }

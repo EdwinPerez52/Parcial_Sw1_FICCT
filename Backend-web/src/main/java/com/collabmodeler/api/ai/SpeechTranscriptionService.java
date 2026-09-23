@@ -25,6 +25,8 @@ public class SpeechTranscriptionService {
         String extension = "audio/webm".equals(mime) ? "webm" : "audio/ogg".equals(mime) ? "ogg" : "mp4";
         var body = new MultipartBodyBuilder();
         body.part("model", properties.getAudioModel());
+        body.part("language", "es");
+        body.part("prompt", "Instrucción en español para crear, consultar, editar o eliminar elementos de un diagrama UML: clases, atributos, relaciones, cardinalidades, enumeraciones y herencias.");
         body.part("file", new ByteArrayResource(audio) {
             @Override public String getFilename() { return "voz." + extension; }
         }).contentType(MediaType.parseMediaType(mime));

@@ -8,10 +8,12 @@ const proposal = { classes: [{ name: 'Product', attributes: [{ name: 'id', type:
 
 describe('photograph import', () => {
   it('does not change the source before confirmation and creates valid references', () => {
-    const candidate = buildImageImport(empty, proposal);
+    const candidate = buildImageImport(empty, { ...proposal, associations: [{ ...proposal.associations[0],
+      sourceRole: 'cliente', targetRole: 'pedidos', owningSide: 'TARGET' as const }] });
     expect(empty.classes).toHaveLength(0);
     expect(candidate.classes).toHaveLength(2);
     expect(candidate.associations[0].sourceId).toBe(candidate.classes[0].id);
+    expect(candidate.associations[0]).toMatchObject({ sourceRole: 'cliente', targetRole: 'pedidos', owningSide: 'TARGET' });
   });
   it('rejects invalid relations before touching the model', () => {
     expect(() => buildImageImport(empty, { ...proposal, associations: [{ ...proposal.associations[0], target: 'Missing' }] })).toThrow();

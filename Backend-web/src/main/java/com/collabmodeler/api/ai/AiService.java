@@ -17,9 +17,16 @@ public class AiService {
         this.properties = properties; this.mapper = mapper; this.rest = builder.build();
     }
     public JsonNode analyzeImage(byte[] image, String contentType) {
-        String prompt = "Extrae solo el diagrama visible, sin inventar. Responde JSON {classes:[{name,attributes:[{name,type,primaryKey,required,unique}]}],associations:[{source,target,sourceCardinality,targetCardinality,name}],warnings:[],confidence:0.0}. confidence es un número entre 0 y 1 para la certeza global. Advierte toda ambigüedad. Tipos válidos: String,Text,Integer,Long,Decimal,Boolean,Date,DateTime,UUID,Binary. Cardinalidades válidas: 0..1,1,0..*,1..*.";
+        String prompt = "Analiza la fotografía como un diagrama UML de clases o entidad-relación. " +
+            "Extrae solamente lo visible: nombres de clases, atributos, tipos, claves, relaciones, roles y cardinalidades. " +
+            "Conserva exactamente los nombres legibles, no inventes elementos y registra toda ambigüedad en warnings. " +
+            "Convierte tipos SQL equivalentes a los tipos escalares permitidos. Si no hay un diagrama reconocible, devuelve " +
+            "classes y associations vacíos, baja confianza y una advertencia clara.";
         String dataUrl = "data:" + contentType + ";base64," + Base64.getEncoder().encodeToString(image);
-        return ImageProposalValidator.validate(chat(properties.getVisionModel(), List.of(Map.of("role", "user", "content", List.of(Map.of("type", "text", "text", prompt), Map.of("type", "image_url", "image_url", Map.of("url", dataUrl)))))));
+        JsonNode result = chat(properties.getVisionModel(), List.of(Map.of("role", "user", "content", List.of(
+            Map.of("type", "text", "text", prompt),
+            Map.of("type", "image_url", "image_url", Map.of("url", dataUrl, "detail", "high"))))), imageResponseFormat());
+        return ImageProposalValidator.validate(result);
     }
 
     @SuppressWarnings("unchecked")
@@ -43,6 +50,10 @@ public class AiService {
         return mapper.convertValue(node, Map.class);
     }
     private JsonNode chat(String model, List<Map<String, Object>> messages) {
+        return chat(model, messages, Map.of("type", "json_object"));
+    }
+
+    private JsonNode chat(String model, List<Map<String, Object>> messages, Map<String, Object> responseFormat) {
         if (properties.getApiKey() == null || properties.getApiKey().isBlank()) throw new AiUnavailableException("Configura AI_API_KEY para usar el proveedor de IA");
 
         List<String> modelsToTry = new java.util.ArrayList<>();
@@ -58,7 +69,8 @@ public class AiService {
                 try {
                     JsonNode response = rest.post().uri(properties.getBaseUrl() + "/chat/completions").contentType(MediaType.APPLICATION_JSON)
                         .header("Authorization", "Bearer " + properties.getApiKey())
-                        .body(Map.of("model", candidateModel, "messages", messages, "temperature", 0, "response_format", Map.of("type", "json_object")))
+                        .body(Map.of("model", candidateModel, "messages", messages, "temperature", 0,
+                            "response_format", responseFormat))
                         .retrieve().body(JsonNode.class);
                     String content = response == null ? "" : response.path("choices").path(0).path("message").path("content").asText();
                     return mapper.readTree(content);
@@ -76,5 +88,39 @@ public class AiService {
             }
         }
         throw new AiUnavailableException("El proveedor de IA no respondió correctamente. Revisa AI_API_KEY y AI_VISION_MODEL. Detalle: " + (lastException != null ? lastException.getMessage() : "Desconocido"));
+    }
+
+    private Map<String, Object> imageResponseFormat() {
+        Map<String, Object> attribute = strictObject(Map.of(
+            "name", Map.of("type", "string"),
+            "type", Map.of("type", "string", "enum", List.of("String", "Text", "Integer", "Long", "Decimal", "Boolean", "Date", "DateTime", "UUID", "Binary")),
+            "primaryKey", Map.of("type", "boolean"),
+            "required", Map.of("type", "boolean"),
+            "unique", Map.of("type", "boolean")));
+        Map<String, Object> diagramClass = strictObject(Map.of(
+            "name", Map.of("type", "string"),
+            "attributes", Map.of("type", "array", "items", attribute)));
+        Map<String, Object> cardinality = Map.of("type", "string", "enum", List.of("0..1", "1", "0..*", "1..*"));
+        Map<String, Object> association = strictObject(Map.of(
+            "source", Map.of("type", "string"),
+            "target", Map.of("type", "string"),
+            "sourceCardinality", cardinality,
+            "targetCardinality", cardinality,
+            "name", Map.of("type", List.of("string", "null")),
+            "sourceRole", Map.of("type", List.of("string", "null")),
+            "targetRole", Map.of("type", List.of("string", "null")),
+            "owningSide", Map.of("type", "string", "enum", List.of("SOURCE", "TARGET"))));
+        Map<String, Object> schema = strictObject(Map.of(
+            "classes", Map.of("type", "array", "items", diagramClass),
+            "associations", Map.of("type", "array", "items", association),
+            "warnings", Map.of("type", "array", "items", Map.of("type", "string")),
+            "confidence", Map.of("type", "number", "minimum", 0, "maximum", 1)));
+        return Map.of("type", "json_schema", "json_schema", Map.of(
+            "name", "uml_image_extraction", "strict", true, "schema", schema));
+    }
+
+    private Map<String, Object> strictObject(Map<String, Object> properties) {
+        return Map.of("type", "object", "additionalProperties", false, "properties", properties,
+            "required", List.copyOf(properties.keySet()));
     }
 }

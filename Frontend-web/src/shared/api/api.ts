@@ -177,7 +177,7 @@ export const collaborationApi = {
 
 export interface ImageProposal {
   classes: Array<{ name: string; attributes: Array<{ name: string; type: string; primaryKey?: boolean; required?: boolean; unique?: boolean }> }>;
-  associations: Array<{ source: string; target: string; sourceCardinality: '0..1' | '1' | '0..*' | '1..*'; targetCardinality: '0..1' | '1' | '0..*' | '1..*'; name?: string }>;
+  associations: Array<{ source: string; target: string; sourceCardinality: '0..1' | '1' | '0..*' | '1..*'; targetCardinality: '0..1' | '1' | '0..*' | '1..*'; name?: string | null; sourceRole?: string | null; targetRole?: string | null; owningSide?: 'SOURCE' | 'TARGET' }>;
   warnings: string[];
   confidence: number;
 }
