@@ -45,7 +45,7 @@ class ExternalPostgresPersistenceTest {
 
     @Test
     void cleanPostgresMigratesAndPersistsTheWholeAggregate() {
-        assertEquals("10", flyway.info().current().getVersion().getVersion());
+        assertEquals("11", flyway.info().current().getVersion().getVersion());
         UUID diagramId = UUID.randomUUID();
         var diagram = new DiagramEntity(diagramId, "Salud",
             "{\"id\":\"%s\",\"name\":\"Salud\",\"revision\":0,\"classes\":[],\"enumerations\":[],\"associations\":[],\"generalizations\":[]}".formatted(diagramId),

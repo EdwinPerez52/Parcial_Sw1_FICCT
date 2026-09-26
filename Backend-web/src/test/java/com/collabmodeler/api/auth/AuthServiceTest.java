@@ -1,5 +1,6 @@
 package com.collabmodeler.api.auth;
 
+import com.collabmodeler.api.access.DiagramShareLinkRepository;
 import com.collabmodeler.api.diagram.DiagramRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -12,10 +13,11 @@ import static org.mockito.Mockito.*;
 
 class AuthServiceTest {
     private AuthStore store; private DiagramRepository diagrams; private PasswordEncoder passwords;
-    private AuthMailService mail; private AuthService service;
+    private DiagramShareLinkRepository shareLinks; private AuthMailService mail; private AuthService service;
     @BeforeEach void setUp() {
-        store = mock(AuthStore.class); diagrams = mock(DiagramRepository.class); passwords = mock(PasswordEncoder.class); mail = mock(AuthMailService.class);
-        service = new AuthService(store, diagrams, passwords, mail, 60, 30);
+        store = mock(AuthStore.class); diagrams = mock(DiagramRepository.class); shareLinks = mock(DiagramShareLinkRepository.class);
+        passwords = mock(PasswordEncoder.class); mail = mock(AuthMailService.class);
+        service = new AuthService(store, diagrams, shareLinks, passwords, mail, 60, 30);
     }
     @Test void registrationRequiresAValidInvitation() {
         when(store.invitation(anyString())).thenReturn(Optional.empty()); when(diagrams.findByShareTokenHash(anyString())).thenReturn(Optional.empty());

@@ -1,5 +1,6 @@
 package com.collabmodeler.api.auth;
 
+import com.collabmodeler.api.access.DiagramShareLinkRepository;
 import com.collabmodeler.api.diagram.DiagramRepository;
 import com.collabmodeler.api.support.ConflictException;
 import org.springframework.beans.factory.annotation.Value;
@@ -28,16 +29,17 @@ public class AuthService {
     private static final Pattern PASSWORD = Pattern.compile("^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d).{10,128}$");
     private final AuthStore store;
     private final DiagramRepository diagrams;
+    private final DiagramShareLinkRepository shareLinks;
     private final PasswordEncoder passwords;
     private final AuthMailService mail;
     private final SecureRandom random = new SecureRandom();
     private final Duration verificationTtl;
     private final Duration resetTtl;
 
-    public AuthService(AuthStore store, DiagramRepository diagrams, PasswordEncoder passwords, AuthMailService mail,
+    public AuthService(AuthStore store, DiagramRepository diagrams, DiagramShareLinkRepository shareLinks, PasswordEncoder passwords, AuthMailService mail,
                        @Value("${app.auth.verification-minutes:60}") long verificationMinutes,
                        @Value("${app.auth.reset-minutes:30}") long resetMinutes) {
-        this.store = store; this.diagrams = diagrams; this.passwords = passwords; this.mail = mail;
+        this.store = store; this.diagrams = diagrams; this.shareLinks = shareLinks; this.passwords = passwords; this.mail = mail;
         this.verificationTtl = Duration.ofMinutes(verificationMinutes); this.resetTtl = Duration.ofMinutes(resetMinutes);
     }
 
@@ -49,8 +51,8 @@ public class AuthService {
             var value = invitation.get();
             return new InvitationInfo(true, value.email(), value.diagramId(), true);
         }
-        return diagrams.findByShareTokenHash(hash)
-            .map(diagram -> new InvitationInfo(true, null, diagram.getId(), true))
+        return sharedDiagramId(hash)
+            .map(diagramId -> new InvitationInfo(true, null, diagramId, true))
             .orElseGet(() -> new InvitationInfo(false, null, null, false));
     }
 
@@ -60,7 +62,7 @@ public class AuthService {
         String tokenHash = hash(invitationToken == null ? "" : invitationToken); Instant now = Instant.now();
         boolean hasToken = invitationToken != null && !invitationToken.isBlank();
         AuthStore.Invitation formal = hasToken ? store.invitation(tokenHash).filter(value -> value.active(now)).orElse(null) : null;
-        UUID diagramId = hasToken ? (formal == null ? diagrams.findByShareTokenHash(tokenHash).map(value -> value.getId()).orElse(null) : formal.diagramId()) : null;
+        UUID diagramId = hasToken ? (formal == null ? sharedDiagramId(tokenHash).orElse(null) : formal.diagramId()) : null;
         if (hasToken && formal == null && diagramId == null) throw new AuthException(HttpStatus.FORBIDDEN, "INVITATION_REQUIRED", "Necesitas una invitación válida para registrarte.");
         if (formal != null && formal.email() != null && !formal.email().equals(email)) {
             throw new AuthException(HttpStatus.FORBIDDEN, "INVITATION_EMAIL_MISMATCH", "La invitación pertenece a otro correo.");
@@ -151,6 +153,10 @@ public class AuthService {
         } catch (Exception ignored) {
             // Ignorar si el servicio de correo no está disponible localmente
         }
+    }
+    private Optional<UUID> sharedDiagramId(String tokenHash) {
+        return diagrams.findByShareTokenHash(tokenHash).map(value -> value.getId())
+            .or(() -> shareLinks.findByTokenHashAndRevokedAtIsNull(tokenHash).map(value -> value.getDiagramId()));
     }
     private String randomToken() { byte[] bytes = new byte[32]; random.nextBytes(bytes); return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes); }
     public static String normalizeEmail(String email) {

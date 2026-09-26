@@ -1,6 +1,7 @@
 package com.collabmodeler.api.access;
 
 import com.collabmodeler.api.diagram.DiagramRepository;
+import com.collabmodeler.api.diagram.DiagramEntity;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -10,20 +11,19 @@ import org.springframework.security.access.AccessDeniedException;
 import java.util.Optional;
 import java.util.UUID;
 
-import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.mockito.Mockito.when;
-import static org.mockito.Mockito.verify;
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class AccessServiceTest {
     @Mock DiagramRepository diagrams;
     @Mock DiagramMemberRepository members;
+    @Mock DiagramShareLinkRepository shareLinks;
 
     @Test
     void onlyOwnerAndEditorCanApplyOperations() {
         UUID diagramId = UUID.randomUUID();
-        AccessService service = new AccessService(diagrams, members);
+        AccessService service = new AccessService(diagrams, members, shareLinks);
         when(members.findByDiagramIdAndSubject(diagramId, "reader"))
             .thenReturn(Optional.of(new DiagramMemberEntity(diagramId, "reader", "Reader", "READER")));
         when(members.findByDiagramIdAndSubject(diagramId, "editor"))
@@ -41,7 +41,7 @@ class AccessServiceTest {
     @Test
     void ownerCanChangeAndRemoveNonOwnerMembers() {
         UUID diagramId = UUID.randomUUID(); UUID memberId = UUID.randomUUID();
-        AccessService service = new AccessService(diagrams, members);
+        AccessService service = new AccessService(diagrams, members, shareLinks);
         DiagramMemberEntity owner = new DiagramMemberEntity(diagramId, "owner", "Owner", "OWNER");
         DiagramMemberEntity reader = new DiagramMemberEntity(diagramId, "reader", "Reader", "READER");
         when(members.findByDiagramIdAndSubject(diagramId, "owner")).thenReturn(Optional.of(owner));
@@ -56,7 +56,7 @@ class AccessServiceTest {
     @Test
     void ownerCannotBeDemotedOrRemovedAndReaderCannotAdminister() {
         UUID diagramId = UUID.randomUUID(); UUID memberId = UUID.randomUUID();
-        AccessService service = new AccessService(diagrams, members);
+        AccessService service = new AccessService(diagrams, members, shareLinks);
         DiagramMemberEntity owner = new DiagramMemberEntity(diagramId, "owner", "Owner", "OWNER");
         DiagramMemberEntity reader = new DiagramMemberEntity(diagramId, "reader", "Reader", "READER");
         when(members.findByDiagramIdAndSubject(diagramId, "owner")).thenReturn(Optional.of(owner));
@@ -66,5 +66,22 @@ class AccessServiceTest {
         assertThrows(IllegalArgumentException.class, () -> service.updateRole(diagramId, memberId, "READER", "owner"));
         assertThrows(IllegalArgumentException.class, () -> service.removeMember(diagramId, memberId, "owner"));
         assertThrows(AccessDeniedException.class, () -> service.updateRole(diagramId, memberId, "EDITOR", "reader"));
+    }
+
+    @Test
+    void creatingANewShareLinkDoesNotInvalidateEarlierLinks() {
+        UUID diagramId = UUID.randomUUID();
+        DiagramEntity diagram = new DiagramEntity(diagramId, "Compartido", "{}", "owner");
+        DiagramMemberEntity owner = new DiagramMemberEntity(diagramId, "owner", "Owner", "OWNER");
+        when(members.findByDiagramIdAndSubject(diagramId, "owner")).thenReturn(Optional.of(owner));
+        when(diagrams.findById(diagramId)).thenReturn(Optional.of(diagram));
+        AccessService service = new AccessService(diagrams, members, shareLinks);
+
+        var first = service.rotateLink(diagramId, "owner");
+        var second = service.rotateLink(diagramId, "owner");
+
+        assertNotEquals(first.get("token"), second.get("token"));
+        verify(shareLinks, times(2)).save(any(DiagramShareLinkEntity.class));
+        assertNull(diagram.getShareTokenHash());
     }
 }

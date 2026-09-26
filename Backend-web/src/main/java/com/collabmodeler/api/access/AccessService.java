@@ -11,6 +11,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
+import java.time.Instant;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
@@ -21,10 +22,11 @@ import java.util.Set;
 public class AccessService {
     private final DiagramRepository diagrams;
     private final DiagramMemberRepository members;
+    private final DiagramShareLinkRepository shareLinks;
     private final SecureRandom random = new SecureRandom();
 
-    public AccessService(DiagramRepository diagrams, DiagramMemberRepository members) {
-        this.diagrams = diagrams; this.members = members;
+    public AccessService(DiagramRepository diagrams, DiagramMemberRepository members, DiagramShareLinkRepository shareLinks) {
+        this.diagrams = diagrams; this.members = members; this.shareLinks = shareLinks;
     }
 
     public void addOwner(UUID diagramId, String subject, String displayName) {
@@ -62,7 +64,7 @@ public class AccessService {
         DiagramEntity entity = diagrams.findById(diagramId).orElseThrow(() -> new NotFoundException("Diagrama no encontrado"));
         byte[] bytes = new byte[24]; random.nextBytes(bytes);
         String token = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
-        entity.setShareTokenHash(hash(token));
+        shareLinks.save(new DiagramShareLinkEntity(entity.getId(), hash(token)));
         return Map.of("token", token, "path", "/join/" + token);
     }
 
@@ -71,11 +73,14 @@ public class AccessService {
         requireOwner(diagramId, subject);
         DiagramEntity entity = diagrams.findById(diagramId).orElseThrow(() -> new NotFoundException("Diagrama no encontrado"));
         entity.setShareTokenHash(null);
+        shareLinks.revokeAll(diagramId, Instant.now());
     }
 
     @Transactional
     public UUID join(String token, String subject, String displayName) {
-        DiagramEntity entity = diagrams.findByShareTokenHash(hash(token))
+        String tokenHash = hash(token);
+        DiagramEntity entity = diagrams.findByShareTokenHash(tokenHash)
+            .or(() -> shareLinks.findByTokenHashAndRevokedAtIsNull(tokenHash).flatMap(link -> diagrams.findById(link.getDiagramId())))
             .orElseThrow(() -> new NotFoundException("El enlace no existe o fue revocado"));
         members.findByDiagramIdAndSubject(entity.getId(), subject)
             .orElseGet(() -> {
